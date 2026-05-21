@@ -1,8 +1,0 @@
-# Keep the Docker build context clean
-.git
-.gitignore
-*.zip
-*.tar.gz
-README.md
-node_modules
-npm-debug.log*
