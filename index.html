@@ -2431,7 +2431,7 @@ footer {
     if (/^https?:\/\//i.test(s)) return s;
     if (!s.includes(' ') && /\.\w{2,}/.test(s)) return 'https://' + s;
     return 'https://www.startpage.com/do/dsearch?query=' + encodeURIComponent(s);
-  }
+  } // Determines if input is empty, a URL, or a search query.
 
   /**
    * Trigger a new-tab navigation using a programmatic <a> click.
