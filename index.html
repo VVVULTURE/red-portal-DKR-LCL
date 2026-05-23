@@ -1,0 +1,2750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a10" />
+  <meta name="description" content="Red Portal — games, proxy browser, HTML executor and more." />
+  <title>Red Portal</title>
+
+  <!-- Preconnect to font origins for faster loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <!--
+    Font loading strategy: preload as style, swap rel via onload.
+    Falls back to <noscript> for no-JS environments.
+    Weights trimmed to only what's actually used (400/600/700).
+  -->
+  <link
+    rel="preload"
+    as="style"
+    href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&family=Exo+2:wght@300;400;600;800&display=swap"
+    onload="this.onload=null;this.rel='stylesheet'"
+  />
+  <noscript>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&family=Exo+2:wght@300;400;600;800&display=swap"
+    />
+  </noscript>
+
+  <style>
+/* ═══════════════════════════════════════════════════════════════════
+   Red Portal — styles.css
+   Extracted & redesigned from monolithic index.html.
+   Architecture: design tokens → reset → layout → components → utility
+═══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. DESIGN TOKENS ──────────────────────────────────────────── */
+:root {
+  /* Accent (overridden at runtime by the theme engine) */
+  --accent:       #FF2020;
+  --accent-dim:   #CC1A1A;
+  --accent-glow:  rgba(255, 32, 32, 0.33);
+  --accent-faint: rgba(255, 32, 32, 0.09);
+
+  /* Surface palette */
+  --bg:           #0a0a10;
+  --surface:      #111118;
+  --surface-2:    #18181f;
+  --surface-3:    #1e1e28;
+
+  /* Borders (overridden by theme engine) */
+  --border:       rgba(255, 32, 32, 0.16);
+  --border-hot:   rgba(255, 32, 32, 0.53);
+
+  /* Typography */
+  --text:         #e4e4f0;
+  --text-muted:   #6a6a8a;
+  --text-dim:     #3a3a55;
+
+  /* Semantic highlight */
+  --green:        #4ade80;
+  --red-err:      #f87171;
+  --orange:       #FF6B35;
+
+  /* Shadows & glows (overridden by theme engine) */
+  --glow-sm:      0 0 8px rgba(255, 32, 32, 0.38);
+  --glow-md:      0 0 18px rgba(255, 32, 32, 0.44), 0 0 40px rgba(255, 32, 32, 0.19);
+  --card-shadow:  0 4px 24px rgba(0, 0, 0, 0.5);
+
+  /* Motion */
+  --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-std:     cubic-bezier(0.4, 0, 0.2, 1);
+  --t-fast:       0.15s;
+  --t-std:        0.22s;
+  --transition:   0.22s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Spacing scale */
+  --sp-xs:  0.35rem;
+  --sp-sm:  0.65rem;
+  --sp-md:  1rem;
+  --sp-lg:  1.5rem;
+  --sp-xl:  2rem;
+
+  /* Layout */
+  --header-h:     72px;
+  --content-max:  1160px;
+  --radius-sm:    6px;
+  --radius-md:    8px;
+  --radius-lg:    12px;
+}
+
+/* ── 2. RESET & BASE ───────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  tab-size: 2;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Exo 2', system-ui, sans-serif;
+  font-size: 1rem;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img, video { max-width: 100%; display: block; }
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; }
+ul, ol { list-style: none; }
+code {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-size: 0.82em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.12rem 0.4rem;
+  color: var(--orange);
+}
+
+/* ── 3. SCROLLBAR ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-hot); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ── 4. SELECTION ──────────────────────────────────────────────── */
+::selection {
+  background: var(--accent-glow);
+  color: var(--text);
+}
+
+/* ── 5. FOCUS ──────────────────────────────────────────────────── */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ── 6. BACKGROUND LAYERS ─────────────────────────────────────── */
+/* Grid overlay (behind content) */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--accent-faint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--accent-faint) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Top radial glow */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, var(--accent-glow) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.5s ease;
+}
+
+/* Suppress glow when a theme background is loaded */
+body.has-bg::after { opacity: 0; }
+
+/* Theme background image layer */
+#theme-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+#theme-bg.loaded { opacity: 1; }
+
+/* ── 7. HEADER ─────────────────────────────────────────────────── */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  height: var(--header-h);
+  padding: 0 var(--sp-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  flex-wrap: wrap;
+  background: rgba(10, 10, 16, 0.88);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 var(--border), 0 4px 30px rgba(0, 0, 0, 0.4);
+}
+
+/* Animated gradient bar across top of header */
+header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent),
+    var(--orange),
+    var(--accent),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: header-sweep 3s linear infinite;
+  will-change: background-position;
+}
+
+@keyframes header-sweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Logo ── */
+.logo {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  filter: drop-shadow(0 0 8px rgba(255, 32, 32, 0.38));
+  transition: filter var(--t-std) var(--ease-std);
+}
+.logo:hover { filter: drop-shadow(0 0 16px rgba(255, 32, 32, 0.7)); }
+.logo img { height: 52px; width: auto; }
+
+/* ── Nav ── */
+nav {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+nav a {
+  position: relative;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0.36rem 0.85rem;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  transition:
+    color var(--t-std) var(--ease-std),
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std),
+    transform var(--t-fast) var(--ease-std);
+}
+
+/* Sliding fill on hover */
+nav a::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--t-std) var(--ease-std);
+  z-index: -1;
+}
+
+nav a:hover {
+  color: #fff;
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--glow-sm);
+}
+nav a:hover::before { transform: scaleX(1); }
+
+nav a.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: var(--glow-sm);
+}
+nav a.active::before { transform: scaleX(1); }
+
+/* ── 8. PROXY TOGGLE ─────────────────────────────────────────── */
+.cors-widget {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  margin-left: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-xs) 0.75rem;
+  user-select: none;
+  flex-shrink: 0;
+  transition:
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.cors-widget:hover { border-color: var(--accent); box-shadow: var(--glow-sm); }
+
+.cors-label {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  transition: color var(--t-std) var(--ease-std);
+}
+.cors-widget.on .cors-label { color: var(--accent); }
+
+.toggle-track {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  flex-shrink: 0;
+  transition:
+    background var(--t-std) var(--ease-std),
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.cors-widget.on .toggle-track {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: var(--glow-sm);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition:
+    transform var(--t-std) var(--ease-std),
+    background var(--t-std) var(--ease-std);
+  will-change: transform;
+}
+.cors-widget.on .toggle-thumb {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.proxy-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  transition:
+    background var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.cors-widget.on .proxy-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: status-pulse 1.5s ease infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── 9. THEME DROPDOWN ───────────────────────────────────────── */
+.theme-widget {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-xs) 0.75rem;
+  user-select: none;
+  flex-shrink: 0;
+  transition:
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.theme-widget:hover { border-color: var(--accent); box-shadow: var(--glow-sm); }
+.theme-widget.open  { border-color: var(--accent); box-shadow: var(--glow-sm); }
+
+.theme-label {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  transition: color var(--t-std) var(--ease-std);
+}
+.theme-widget:hover .theme-label,
+.theme-widget.open  .theme-label { color: var(--accent); }
+
+.theme-arrow {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  line-height: 1;
+  transition:
+    transform var(--t-std) var(--ease-std),
+    color var(--t-std) var(--ease-std);
+}
+.theme-widget.open .theme-arrow {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+.theme-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 135px;
+  background: var(--surface);
+  border: 1px solid var(--border-hot);
+  border-radius: var(--radius-md);
+  box-shadow: var(--glow-sm), 0 8px 32px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  z-index: 9999;
+  opacity: 0;
+  transform: translateY(-6px) scaleY(0.95);
+  transform-origin: top right;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.theme-widget.open .theme-dropdown {
+  opacity: 1;
+  transform: translateY(0) scaleY(1);
+  pointer-events: all;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.85rem;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--t-std) var(--ease-std),
+    color var(--t-std) var(--ease-std);
+}
+.theme-option:hover  { background: var(--accent-faint); color: var(--accent); }
+.theme-option.active { background: var(--accent-faint); color: var(--accent); }
+
+.theme-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* ── 10. MAIN CONTENT ────────────────────────────────────────── */
+main {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+/* Section visibility — progressively enhanced by JS */
+.section { display: none; }
+.js .section { display: none !important; }
+.js .section.active { display: block !important; }
+#games { display: block; } /* default visible before JS */
+
+/* Section entrance animation */
+.section-enter {
+  animation: section-in 0.35s var(--ease-out) forwards;
+}
+@keyframes section-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Section headings */
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: var(--sp-lg) var(--sp-lg) 0;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: clamp(1.3rem, 3vw, 1.6rem);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: var(--glow-sm);
+  margin-bottom: var(--sp-lg);
+}
+h2::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border-hot), transparent);
+}
+
+/* Hidden headings for game/testing sections (they show full-bleed grid) */
+#games h2,
+#Testing h2 { display: none; }
+
+/* ── 11. CARDS ───────────────────────────────────────────────── */
+.card {
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-lg);
+  margin-bottom: var(--sp-lg);
+  box-shadow: var(--card-shadow);
+  transition: border-color var(--t-std) var(--ease-std);
+}
+.card:hover { border-color: var(--border-hot); }
+
+/* Transparent card wrapper used for game grids */
+.card.grid-card {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+.card.grid-card:hover { border-color: transparent; }
+
+/* ── 12. SEARCH BAR ──────────────────────────────────────────── */
+#search-bar-wrap {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 150;
+  padding: 0.55rem var(--sp-md);
+  display: none;
+  align-items: center;
+  background: rgba(10, 10, 16, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+#search-bar-wrap.visible { display: flex; }
+
+.search-wrap {
+  position: relative;
+  width: clamp(220px, 30vw, 320px);
+}
+
+.search-wrap svg {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  pointer-events: none;
+  transition: stroke var(--t-std) var(--ease-std);
+}
+.search-wrap:focus-within svg { stroke: var(--accent); }
+
+#gameSearch {
+  width: 100%;
+  background: rgba(10, 10, 16, 0.8);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-family: 'Exo 2', sans-serif;
+  font-size: 0.9rem;
+  padding: 0.55rem 0.75rem 0.55rem 2.4rem;
+  outline: none;
+  transition:
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+#gameSearch:focus  { border-color: var(--accent); box-shadow: var(--glow-sm); }
+#gameSearch::placeholder { color: var(--text-muted); }
+
+/* ── 13. GAME GRID ───────────────────────────────────────────── */
+.games-grid {
+  display: grid;
+  /* Responsive: fills available width, min 145px per column */
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 0.55rem;
+  padding: 0.6rem var(--sp-md) var(--sp-md);
+  width: 100%;
+}
+
+/* Individual game button */
+.game-btn {
+  position: relative;
+  background: rgba(24, 24, 31, 0.84);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.87rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 7px;
+  padding: 0 0.5rem;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  word-break: break-word;
+  overflow: hidden;
+  flex-shrink: 0;
+  /* Staggered reveal animation */
+  opacity: 0;
+  transform: translateY(8px);
+  animation: card-reveal 0.35s var(--ease-out) forwards;
+  will-change: transform, opacity;
+  transition:
+    color var(--t-std) var(--ease-std),
+    border-color var(--t-std) var(--ease-std),
+    transform var(--t-std) var(--ease-out),
+    box-shadow var(--t-std) var(--ease-std),
+    background var(--t-std) var(--ease-std);
+}
+@keyframes card-reveal {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Hover fill overlay */
+.game-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
+  opacity: 0;
+  transition: opacity var(--t-std) var(--ease-std);
+}
+
+/* Shimmer sweep on hover */
+.game-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  transition: transform 0.5s ease;
+}
+
+.game-btn span { position: relative; z-index: 1; }
+
+.game-btn:hover {
+  border-color: var(--accent);
+  color: #fff;
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: var(--glow-md), var(--card-shadow);
+}
+.game-btn:hover::before { opacity: 1; }
+.game-btn:hover::after  { transform: translateX(100%); }
+.game-btn:active { transform: scale(0.97); }
+.game-btn.hidden { display: none; }
+
+/* ── 14. INPUTS ──────────────────────────────────────────────── */
+textarea,
+input[type="file"],
+input[type="url"],
+input[type="text"],
+input[type="search"],
+input[type="password"] {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-family: 'Exo 2', sans-serif;
+  font-size: 0.92rem;
+  padding: 0.65rem 0.85rem;
+  outline: none;
+  transition:
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+textarea { resize: vertical; min-height: 190px; }
+
+textarea:focus,
+input[type="url"]:focus,
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="password"]:focus {
+  border-color: var(--accent);
+  box-shadow: var(--glow-sm);
+}
+
+textarea::placeholder,
+input::placeholder { color: var(--text-muted); }
+
+/* Labels */
+label.section-label {
+  display: block;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+.field { margin-bottom: var(--sp-md); }
+
+/* ── 15. BUTTONS ─────────────────────────────────────────────── */
+/* Primary (solid accent) */
+.btn-primary {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.65rem 1.5rem;
+  border-radius: 7px;
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std),
+    filter var(--t-std) var(--ease-std);
+}
+/* Shimmer sweep on hover */
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.5s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glow-md);
+  filter: brightness(1.1);
+}
+.btn-primary:hover::after { transform: translateX(100%); }
+.btn-primary:active { transform: scale(0.97); }
+
+/* Ghost (outlined accent) */
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border-hot);
+  color: var(--accent);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.5rem 1.1rem;
+  border-radius: 7px;
+  transition:
+    background var(--t-std) var(--ease-std),
+    color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.btn-ghost:hover { background: var(--accent-faint); box-shadow: var(--glow-sm); }
+
+/* Icon button (square) */
+.btn-icon {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 1rem;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition:
+    color var(--t-std) var(--ease-std),
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.btn-icon:hover { color: var(--text); border-color: var(--accent); box-shadow: var(--glow-sm); }
+.btn-icon:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+
+/* ── 16. STATUS ──────────────────────────────────────────────── */
+.status {
+  margin-top: 0.7rem;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.81rem;
+  color: var(--text-muted);
+  min-height: 1.2em;
+  transition: color 0.3s ease;
+}
+.status.ok  { color: var(--green); }
+.status.err { color: var(--red-err); }
+
+/* ── 17. PROXY BROWSER ───────────────────────────────────────── */
+.browser-shell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 82vh;
+  min-height: 400px;
+}
+
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.browser-url-wrap {
+  flex: 1;
+  position: relative;
+}
+.browser-url-wrap svg {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+#browserUrl {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.83rem;
+  padding: 0.42rem 0.7rem 0.42rem 2.1rem;
+  outline: none;
+  transition:
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+#browserUrl:focus { border-color: var(--accent); box-shadow: var(--glow-sm); }
+#browserUrl::placeholder { color: var(--text-muted); }
+
+.browser-viewport {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+#browserFrame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* Loading overlay */
+.browser-loading {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-md);
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.browser-loading.active { opacity: 1; pointer-events: all; }
+.browser-loading p {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Spinner */
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  will-change: transform;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Welcome screen */
+.browser-welcome {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--text-muted);
+  font-family: 'Rajdhani', sans-serif;
+}
+.browser-welcome svg {
+  width: 48px;
+  height: 48px;
+  stroke: var(--border-hot);
+  fill: none;
+  stroke-width: 1.5;
+}
+.browser-welcome p { font-size: 1rem; font-weight: 600; letter-spacing: 0.06em; }
+.browser-welcome small { font-size: 0.78rem; opacity: 0.65; }
+
+/* Fullscreen mode (CSS fallback for non-FS-API browsers) */
+.browser-shell.fs {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  border-radius: 0;
+  border: none;
+  height: 100vh;
+}
+
+/* ── 18. WORKER CONFIG CARD (credits) ────────────────────────── */
+.worker-config-card {
+  margin-top: var(--sp-xl);
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-lg);
+}
+.worker-config-card h3 {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-md);
+}
+
+.worker-url-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.worker-url-row input { flex: 1; }
+
+/* ── 19. MODAL ───────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border-hot);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-xl);
+  max-width: 560px;
+  width: calc(100% - var(--sp-xl));
+  box-shadow: var(--glow-md), var(--card-shadow);
+  position: relative;
+  transform: translateY(20px);
+  transition: transform 0.3s var(--ease-out);
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+
+.modal h3 {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: var(--sp-md);
+}
+.modal p,
+.modal li {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+.modal ol { padding-left: 1.2rem; }
+.modal pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.76rem;
+  color: #a0ffa0;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  line-height: 1.5;
+}
+
+.modal-close {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.85rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  padding: 0.25rem;
+  border-radius: 4px;
+  transition: color var(--t-std) var(--ease-std);
+}
+.modal-close:hover { color: var(--accent); }
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: var(--sp-lg);
+  flex-wrap: wrap;
+}
+
+/* ── 20. FORM / CREDITS ──────────────────────────────────────── */
+.form-iframe-wrap {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.form-iframe-wrap iframe {
+  display: block;
+  width: 100%;
+  height: 680px;
+  border: none;
+}
+
+.credits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.credit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  transition:
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.credit-row:hover { border-color: var(--accent); box-shadow: var(--glow-sm); }
+.credit-name {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--accent);
+  min-width: 110px;
+}
+.credit-role { font-size: 0.87rem; color: var(--text-muted); }
+
+/* ── 21. CONTENT CONTAINER (non-game sections) ───────────────── */
+.section-inner {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--sp-xl) var(--sp-lg);
+}
+
+/* ── 22. REDUCED MOTION ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
+}
+
+/* ── 23. RESPONSIVE ──────────────────────────────────────────── */
+@media (max-width: 768px) {
+  :root { --header-h: auto; }
+
+  header {
+    height: auto;
+    padding: 0.6rem var(--sp-md);
+    gap: 0.5rem;
+  }
+
+  nav a {
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+  }
+
+  .games-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem 0.8rem;
+  }
+
+  .cors-widget { margin-left: 0; }
+  .search-wrap { width: 100%; }
+
+  #search-bar-wrap { padding: 0.45rem 0.6rem; }
+
+  .section-inner { padding: var(--sp-lg) var(--sp-md); }
+
+  h2 { padding: var(--sp-md) var(--sp-md) 0; }
+
+  .browser-shell { height: 75vh; }
+}
+
+@media (max-width: 480px) {
+  .games-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .modal { padding: var(--sp-lg); }
+
+  nav { gap: 0.2rem; }
+  nav a { font-size: 0.74rem; padding: 0.28rem 0.5rem; }
+}
+
+/* ── 24. PRINT ───────────────────────────────────────────────── */
+@media print {
+  header, #search-bar-wrap, .cors-widget, .theme-widget,
+  .modal-overlay, .browser-shell { display: none !important; }
+  body { background: #fff; color: #000; }
+  .section { display: block !important; }
+}
+
+
+/* ── FOOTER ────────────────────────────────────────────────────── */
+footer {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-top: 1px solid var(--border);
+  background: rgba(10,10,16,.72);
+  backdrop-filter: blur(12px);
+}
+
+.footer-link {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: .82rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  transition: color var(--transition);
+}
+
+.footer-link svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  transition: color var(--transition);
+}
+
+.footer-link:hover {
+  color: var(--accent);
+}
+
+.footer-divider {
+  color: var(--border-hot);
+  font-size: .9rem;
+  line-height: 1;
+}
+
+/* ── 15. INTRO OVERLAY ─────────────────────────────────────────── */
+/*
+   Full-screen intro shown once on page load. Sits above EVERYTHING
+   (header z-index = 200, modals = 9999) so it always covers the UI.
+   The element is removed from the DOM by the inline script in
+   index.html after the fade-out finishes — it never lingers to
+   intercept clicks or break layout.
+*/
+#intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  opacity: 1;
+  transition: opacity 0.6s ease;
+}
+
+#intro-overlay.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#intro-overlay #intro-gif {
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Non-JS fallback: if scripts are blocked, the inline script can't
+   remove the overlay. Also belt-and-braces for reduced-motion users. */
+@media (prefers-reduced-motion: reduce) {
+  #intro-overlay { display: none; }
+}
+
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════
+     INTRO OVERLAY
+     Plays Red-Intro.gif once on page load, then fades and removes itself.
+     Kept inline and non-deferred so it runs the instant the overlay is
+     parsed — no race with the deferred script.js.
+═══════════════════════════════ -->
+<div id="intro-overlay" aria-hidden="true" style="cursor:pointer;" title="Click to skip">
+  <img id="intro-gif" src="https://red-portal-service.koyeb.app/assets/intro/Red-Intro.gif" alt="" />
+</div>
+<script>
+  (function () {
+    var overlay = document.getElementById('intro-overlay');
+    if (!overlay) return;
+
+    /* Skip the intro entirely for users who prefer reduced motion. */
+    if (window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      overlay.remove();
+      return;
+    }
+
+    /* GIF: 28 frames × 70 ms ≈ 1960 ms for one play.
+       Hold briefly on the final frame, then fade and remove. */
+    var PLAY_MS = 1960;
+    var HOLD_MS = 250;
+    var FADE_MS = 600;   /* must match the CSS transition duration */
+
+    function dismiss() {
+      overlay.classList.add('fade-out');
+      setTimeout(function () { overlay.remove(); }, FADE_MS);
+    }
+
+    /* Click anywhere on the overlay to skip */
+    overlay.addEventListener('click', dismiss);
+
+    setTimeout(dismiss, PLAY_MS + HOLD_MS);
+  })();
+</script>
+
+<!-- ═══════════════════════════════
+     BACKGROUND THEME LAYER
+═══════════════════════════════ -->
+<div id="theme-bg" aria-hidden="true"></div>
+
+<!-- ═══════════════════════════════
+     PROXY CONFIG MODAL
+═══════════════════════════════ -->
+<div class="modal-overlay" id="workerModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <button class="modal-close" id="modalClose" aria-label="Close dialog">✕</button>
+    <h3 id="modalTitle">⚡ Local Proxy Server Config</h3>
+    <p>
+      This build runs its proxy <strong>locally</strong> via <code>server.js</code> —
+      no Cloudflare account needed.
+    </p>
+    <ol>
+      <li>Make sure the server is running: <code>node server.js</code></li>
+      <li>The default proxy is <code>https://red-portal-service.koyeb.app/proxy</code></li>
+      <li>
+        If you used a custom port (e.g. <code>PORT=8080 node server.js</code>),
+        update the URL below.
+      </li>
+    </ol>
+    <div class="field">
+      <label class="section-label" for="modalWorkerInput">Your Worker URL</label>
+      <div class="worker-url-row">
+        <input
+          type="url"
+          id="modalWorkerInput"
+          placeholder="https://red-portal-service.koyeb.app/proxy"
+          autocomplete="off"
+        />
+        <button class="btn-primary" id="btnModalSave">Save</button>
+      </div>
+    </div>
+    <p id="modalSaveStatus" class="status" aria-live="polite"></p>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="btnModalReset">Reset to Default</button>
+      <button class="btn-ghost" id="btnModalCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════
+     HEADER
+═══════════════════════════════ -->
+<header role="banner">
+  <!-- Logo (also acts as home link) -->
+  <a class="logo" href="#games" data-section="games" aria-label="Red Portal — go to Games">
+    <img src="https://red-portal-service.koyeb.app/assets/logo/logo.png" alt="Red Portal" width="52" height="52" />
+  </a>
+
+  <!-- Primary navigation -->
+  <nav id="mainNav" aria-label="Main navigation">
+    <a class="active" href="#games"   data-section="games">🎮 Games</a>
+    <a href="#proxies"               data-section="proxies">🌐 Proxy</a>
+    <a href="#form"                  data-section="form">📋 Requests</a>
+    <a href="#executor"              data-section="executor">💻 Executor</a>
+    <a href="#credits"               data-section="credits">🏆 Credits</a>
+    <a href="#Testing"               data-section="Testing">🧪 Testing</a>
+  </nav>
+
+  <!-- Theme selector dropdown -->
+  <div
+    class="theme-widget"
+    id="themeWidget"
+    role="button"
+    tabindex="0"
+    aria-haspopup="listbox"
+    aria-expanded="false"
+    aria-label="Select colour theme"
+  >
+    <span class="theme-label">Theme</span>
+    <span class="theme-arrow" aria-hidden="true">▼</span>
+    <!-- Options populated by JS from THEMES config in script.js -->
+    <div class="theme-dropdown" id="themeDropdown" role="listbox" aria-label="Themes"></div>
+  </div>
+
+  <!-- CORS proxy toggle -->
+  <div
+    class="cors-widget"
+    id="corsWidget"
+    role="button"
+    tabindex="0"
+    aria-pressed="true"
+    aria-label="Toggle CORS proxy"
+  >
+    <div class="proxy-status-dot" aria-hidden="true"></div>
+    <span class="cors-label">Proxy</span>
+    <div class="toggle-track" aria-hidden="true">
+      <div class="toggle-thumb"></div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════
+     STICKY SEARCH BAR
+     (visible only on Games / Testing sections)
+═══════════════════════════════ -->
+<div id="search-bar-wrap" role="search" aria-label="Search games">
+  <div class="search-wrap">
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="11" cy="11" r="7"/>
+      <line x1="16.5" y1="16.5" x2="22" y2="22"/>
+    </svg>
+    <input
+      type="search"
+      id="gameSearch"
+      placeholder="Search games…"
+      autocomplete="off"
+      spellcheck="false"
+      aria-label="Search games"
+    />
+  </div>
+</div>
+
+<!-- ═══════════════════════════════
+     MAIN CONTENT
+═══════════════════════════════ -->
+<main id="main-content">
+
+  <!-- ── GAMES ── -->
+  <section id="games" class="section active" aria-label="Games">
+    <h2>🎮 Games</h2>
+    <div class="card grid-card">
+      <div class="games-grid" id="gamesGrid">
+        <a class="game-btn" href="https://cookieclicker-nu.vercel.app" target="_blank" rel="noopener noreferrer"><span>Cookie Clicker</span></a>
+        <a class="game-btn" href="https://drive-mad1.vercel.app" target="_blank" rel="noopener noreferrer"><span>Drive Mad</span></a>
+        <a class="game-btn" href="https://eagler1-8-8-wasm-gc.vercel.app" target="_blank" rel="noopener noreferrer"><span>Eaglercraft 1.8</span></a>
+        <a class="game-btn" href="https://math-class-school.vercel.app" target="_blank" rel="noopener noreferrer"><span>Eaglercraft 1.12</span></a>
+        <a class="game-btn" href="https://house-of-hazards-ashy.vercel.app" target="_blank" rel="noopener noreferrer"><span>House of Hazards</span></a>
+        <a class="game-btn" href="https://dadish.vercel.app" target="_blank" rel="noopener noreferrer"><span>Dadish 1</span></a>
+        <a class="game-btn" href="https://dadish2.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Dadish 2</span></a>
+        <a class="game-btn" href="https://dadish3-2.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Dadish 3</span></a>
+        <a class="game-btn" href="https://stickman-hook-five.vercel.app" target="_blank" rel="noopener noreferrer"><span>Stickman Hook</span></a>
+        <a class="game-btn" href="https://bitlife1.vercel.app" target="_blank" rel="noopener noreferrer"><span>Bitlife</span></a>
+        <a class="game-btn" href="https://getaway-shootout-ten.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Getaway Shootout</span></a>
+        <a class="game-btn" href="https://rooftop-snipers-rose.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Rooftop Snipers</span></a>
+        <a class="game-btn" href="https://basket-random-ph7z.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Basket Random</span></a>
+        <a class="game-btn" href="https://gun-spin-dusky.vercel.app/" target="_blank" rel="noopener noreferrer"><span>GunSpin</span></a>
+        <a class="game-btn" href="https://slope-game-fsq3.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Slope</span></a>
+        <a class="game-btn" href="https://bongo-cat-lyart.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Bongo Cat</span></a>
+        <a class="game-btn" href="https://snow-rider3-d-five.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Snow Rider 3D</span></a>
+        <a class="game-btn" href="https://a-small-world-cup-eight.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Small World Cup</span></a>
+        <a class="game-btn" href="https://vex5-sigma.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Vex 5</span></a>
+        <a class="game-btn" href="https://vex6-nine.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Vex 6</span></a>
+        <a class="game-btn" href="https://block-blast-tau.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Block Blast</span></a>
+        <a class="game-btn" href="https://slow-roads-psi.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Slowroads.io</span></a>
+        <a class="game-btn" href="https://amazing-strange-rope-police-eight.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Amazing Strange Rope Police</span></a>
+        <a class="game-btn" href="https://gd-ten-jet.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Geometry Dash</span></a>
+        <a class="game-btn" href="https://flappy-bird-three-nu.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Flappy Bird</span></a>
+        <a class="game-btn" href="https://emulator-js-sigma.vercel.app/" target="_blank" rel="noopener noreferrer"><span>EmulatorJS</span></a>
+        <a class="game-btn" href="https://hollow-knight-red.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Hollow Knight</span></a>
+        <a class="game-btn" href="https://deltarune-1.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Deltarune Ch.1</span></a>
+        <a class="game-btn" href="https://deltarune-2.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Deltarune Ch.2</span></a>
+        <a class="game-btn" href="https://deltarune-3.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Deltarune Ch.3</span></a>
+        <a class="game-btn" href="https://undertale-iframe.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Undertale</span></a>
+        <a class="game-btn" href="https://fnae-2.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Five Nights At Epsteins</span></a>
+        <a class="game-btn" href="https://brotato-1.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Brotato</span></a>
+        <a class="game-btn" href="https://poly-test-five.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Polytrack</span></a>
+        <a class="game-btn" href="https://bad-time-sim.vercel.app" target="_blank" rel="noopener noreferrer"><span>Bad Time Simulator</span></a>
+        <a class="game-btn" href="https://rag-archers.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Ragdoll Archers</span></a>
+        <a class="game-btn" href="https://freegamesunblocked76.github.io/retro-bowl/" target="_blank" rel="noopener noreferrer"><span>Retro Bowl</span></a>
+        <a class="game-btn" href="https://stardew-valley-iframe.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Stardew Valley</span></a>
+        <a class="game-btn" href="https://heartfelt-croquembouche-c0e7a0.netlify.app/" target="_blank" rel="noopener noreferrer"><span>RedRoom</span></a>
+        <a class="game-btn" href="https://gulper.io/" target="_blank" rel="noopener noreferrer"><span>Slither.io</span></a>
+        <a class="game-btn" href="https://dwdvil.github.io/cuphead-cdv-web/" target="_blank" rel="noopener noreferrer"><span>Cuphead</span></a>
+        <a class="game-btn" href="https://tangerine-lebkuchen-1330f1.netlify.app/" target="_blank" rel="noopener noreferrer"><span>Crossy Road</span></a>
+        <a class="game-btn" href="https://darling-halva-50f84b.netlify.app/" target="_blank" rel="noopener noreferrer"><span>Get Yolked</span></a>
+        <a class="game-btn" href="https://irv77.github.io/hd_fnaf/1/" target="_blank" rel="noopener noreferrer"><span>FNAF</span></a>
+        <a class="game-btn" href="https://map-l.github.io/play/bendy-and-the-ink-machine/" target="_blank" rel="noopener noreferrer"><span>Bendy &amp; TIM</span></a>
+        <a class="game-btn" href="https://enchanting-sorbet-464cd5.netlify.app/" target="_blank" rel="noopener noreferrer"><span>Slime Rancher</span></a>
+        <a class="game-btn" href="https://symphonious-dieffenbachia-0c2d1d.netlify.app/" target="_blank" rel="noopener noreferrer"><span>Ships 3D</span></a>
+        <a class="game-btn" href="https://effortless-sawine-4f7574.netlify.app/" target="_blank" rel="noopener noreferrer"><span>Tanks 3D</span></a>
+        <a class="game-btn" href="https://delightful-fudge-1f7053.netlify.app/" target="_blank" rel="noopener noreferrer"><span>Dynamic AI</span></a>
+        <a class="game-btn" href="https://bksht-rlt.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Buckshot Roulette (Slow)</span></a>
+        <a class="game-btn" href="https://balatro-gray.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Balatro</span></a>
+        <a class="game-btn" href="https://drift-hunters-green.vercel.app" target="_blank" rel="noopener noreferrer"><span>Drift Hunters</span></a>
+        <a class="game-btn" href="https://silksong-alpha.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Silksong (Slow)</span></a>
+        <a class="game-btn" href="https://idle-breakout-jz7b.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Idle Breakout</span></a>
+        <a class="game-btn" href="https://gladihoppers-sepia.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Gladihoppers</span></a>
+        <a class="game-btn" href="https://pp-iframe.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Peppa Pig Simulator</span></a>
+        <a class="game-btn" href="https://d3-d-iframe.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Dadish 3D</span></a>
+        <a class="game-btn" href="https://granny-sigma.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Granny</span></a>
+        <a class="game-btn" href="https://agar-local.onrender.com/" target="_blank" rel="noopener noreferrer"><span>AGAR.IO</span></a>
+        <a class="game-btn" href="https://postal-iframe.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Postal</span></a>
+        <a class="game-btn" href="https://monkey-mart-nine.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Monkey Mart</span></a>
+        <a class="game-btn" href="https://webos.koyeb.app/" target="_blank" rel="noopener noreferrer"><span>WebOS</span></a>
+        <a class="game-btn" href="https://sparkling-marigold-0e4e99.netlify.app/" target="_blank" rel="noopener noreferrer"><span>A Day in the Office</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── TESTING ── -->
+  <section id="Testing" class="section" aria-label="Testing — pre-launch games">
+    <h2>🧪 Testing (Pre-Launch)</h2>
+    <div class="card grid-card">
+      <div class="games-grid" id="preLaunchGrid">
+        <a class="game-btn" href="https://gta-vice-city-chi.vercel.app/" target="_blank" rel="noopener noreferrer"><span>GTA Vice City</span></a>
+        <a class="game-btn" href="https://there-is-no-game-pink.vercel.app/" target="_blank" rel="noopener noreferrer"><span>There Is No Game</span></a>
+        <a class="game-btn" href="https://boom-slingers.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Boom Slingers</span></a>
+        <a class="game-btn" href="https://coreball-cyan.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Coreball</span></a>
+        <a class="game-btn" href="https://tunnel-rush-jade.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Tunnel Rush</span></a>
+        <a class="game-btn" href="https://bowmasters-three.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Bowmasters</span></a>
+        <a class="game-btn" href="https://scramjet-dkr-lcl.onrender.com/" target="_blank" rel="noopener noreferrer"><span>Scramjet</span></a>
+        <a class="game-btn" href="https://devi2-iframe.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Drive Mad Mind</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── HTML EXECUTOR ── -->
+  <section id="executor" class="section" aria-label="HTML Executor">
+    <div class="section-inner">
+      <h2>💻 HTML Executor</h2>
+
+      <div class="card">
+        <div class="field">
+          <label class="section-label" for="htmlInput">Type or paste HTML / JS / CSS</label>
+          <textarea
+            id="htmlInput"
+            placeholder="<h1>Hello World!</h1>&#10;<script>alert('hi');<\/script>"
+            spellcheck="false"
+          ></textarea>
+        </div>
+        <button class="btn-primary" id="btnRunHtml">▶ Run HTML</button>
+        <p class="status" id="execTypedStatus" aria-live="polite"></p>
+      </div>
+
+      <div class="card">
+        <div class="field">
+          <label class="section-label" for="fileInput">Upload an HTML file</label>
+          <input type="file" id="fileInput" accept=".html,.htm,.xhtml" />
+        </div>
+        <button class="btn-primary" id="btnOpenFile">📂 Open File</button>
+        <p class="status" id="execFileStatus" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── PROXY (in-page proxy browser) ── -->
+  <section id="proxies" class="section" aria-label="Proxy Browser">
+    <div class="section-inner">
+      <h2>🌐 Proxy</h2>
+
+      <div class="browser-shell" id="browserShell" role="region" aria-label="In-page proxy browser">
+        <div class="browser-toolbar">
+          <button class="btn-icon" id="btnBack"    title="Back"    aria-label="Back"    disabled>&#8592;</button>
+          <button class="btn-icon" id="btnForward" title="Forward" aria-label="Forward" disabled>&#8594;</button>
+          <button class="btn-icon" id="btnRefresh" title="Refresh" aria-label="Refresh">&#8635;</button>
+
+          <div class="browser-url-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>
+            </svg>
+            <input
+              type="text"
+              id="browserUrl"
+              placeholder="https://example.com"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="URL to navigate to"
+            />
+          </div>
+
+          <button class="btn-icon" id="btnGo"         title="Go"         aria-label="Go">&#9654;</button>
+          <button class="btn-icon" id="btnFullscreen" title="Fullscreen" aria-label="Toggle fullscreen">⛶</button>
+        </div>
+
+        <div class="browser-viewport">
+          <!-- Welcome screen (shown before any navigation) -->
+          <div class="browser-welcome" id="browserWelcome" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>
+            </svg>
+            <p>Proxy Browser</p>
+            <small>All requests routed through your worker — redirects stay in-page</small>
+          </div>
+
+          <!-- Loading overlay -->
+          <div class="browser-loading" id="browserLoading" aria-live="polite" aria-label="Loading">
+            <div class="spinner" aria-hidden="true"></div>
+            <p id="browserLoadingText">Loading…</p>
+          </div>
+
+          <!-- The actual frame -->
+          <iframe
+            id="browserFrame"
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+            title="Proxy browser frame"
+          ></iframe>
+        </div>
+      </div>
+
+      <p class="status" id="browserStatus" aria-live="polite" style="margin-top:.75rem;"></p>
+    </div>
+  </section>
+
+  <!-- ── REQUESTS (Google Form) ── -->
+  <section id="form" class="section" aria-label="Requests">
+    <div class="section-inner">
+      <h2>📋 Requests</h2>
+      <div class="card">
+        <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1.5rem;line-height:1.65;">
+          Want a game or service added? Fill this out and it'll land straight in our Discord.
+        </p>
+
+        <div class="field">
+          <label class="section-label" for="reqName">
+            Game / Service Name <span aria-hidden="true" style="color:var(--accent)">*</span>
+          </label>
+          <input
+            type="text"
+            id="reqName"
+            placeholder="e.g. Minecraft, Spotify Proxy…"
+            autocomplete="off"
+            maxlength="120"
+          />
+        </div>
+
+        <div class="field">
+          <label class="section-label" for="reqType">Type</label>
+          <select id="reqType">
+            <option value="Game">🎮 Game</option>
+            <option value="Service">🌐 Service / Proxy</option>
+            <option value="Other">💬 Other</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="section-label" for="reqNotes">
+            Notes
+            <span style="color:var(--text-muted);font-weight:400;text-transform:none;font-size:.82em;">(optional)</span>
+          </label>
+          <textarea
+            id="reqNotes"
+            placeholder="Why do you want it? Any useful links?"
+            maxlength="500"
+            rows="3"
+            spellcheck="false"
+          ></textarea>
+        </div>
+
+        <div class="field">
+          <label class="section-label" for="reqAlias">
+            Your Name / Alias
+            <span style="color:var(--text-muted);font-weight:400;text-transform:none;font-size:.82em;">(optional)</span>
+          </label>
+          <input
+            type="text"
+            id="reqAlias"
+            placeholder="Anonymous"
+            autocomplete="off"
+            maxlength="80"
+          />
+        </div>
+
+        <button class="btn-primary" id="btnSubmitRequest">📨 Submit Request</button>
+        <p class="status" id="requestStatus" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CREDITS ── -->
+  <section id="credits" class="section" aria-label="Credits">
+    <div class="section-inner">
+      <h2>🏆 Credits</h2>
+      <div class="card">
+        <ul class="credits-list" aria-label="Team credits">
+          <li class="credit-row">
+            <span class="credit-name">VVulture</span>
+            <span class="credit-role">Coder, Designer &amp; Developer</span>
+          </li>
+          <li class="credit-row">
+            <span class="credit-name">Redgale7</span>
+            <span class="credit-role">Coder, Designer &amp; Developer</span>
+          </li>
+          <li class="credit-row">
+            <span class="credit-name">DeviDrawz</span>
+            <span class="credit-role">Logo Designer &amp; Main Artist</span>
+          </li>
+          </li>
+          <li class="credit-row">
+            <span class="credit-name">Mr. Aspin</span>
+            <span class="credit-role">"Teacher Tolerance Is Low"</span>
+          </li>
+          <li class="credit-row">
+            <span class="credit-name">James Gross</span>
+            <span class="credit-role">Moral Support</span>
+          </li>
+        </ul>
+
+        <p style="margin-top:1.25rem;font-style:italic;color:var(--text-muted);font-size:.9rem;">Hi Marcus!</p>
+
+        <div style="text-align:center;margin-top:1.5rem;">
+          <img
+            src="https://www.icegif.com/wp-content/uploads/2023/02/icegif-519.gif"
+            alt="Credits celebration GIF"
+            loading="lazy"
+            style="max-width:100%;border-radius:8px;border:1px solid var(--border);"
+          />
+        </div>
+
+        <!-- Proxy Worker Config (bottom of credits) -->
+        <div class="worker-config-card">
+          <h3>⚙ Proxy Worker Config</h3>
+          <p style="font-size:.88rem;color:var(--text-muted);margin-bottom:.85rem;line-height:1.6;">
+            Currently using: <code id="currentWorkerDisplay"></code><br />
+            Change the URL below only if your local server runs on a different port.
+          </p>
+          <div class="worker-url-row" style="margin-bottom:.6rem;">
+            <input
+              type="url"
+              id="creditsWorkerInput"
+              placeholder="https://red-portal-service.koyeb.app/proxy"
+              autocomplete="off"
+            />
+            <button class="btn-primary" id="btnCreditsSave">Save</button>
+          </div>
+          <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.6rem;">
+            <button class="btn-ghost" id="btnCreditsReset">Reset to Default</button>
+            <button class="btn-ghost" id="btnCreditsSetup">View Proxy Config</button>
+          </div>
+          <p id="creditsWorkerStatus" class="status" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <a href="https://discord.gg/TzEsEJgtJp" target="_blank" rel="noopener noreferrer" class="footer-link">
+    <!-- Discord icon -->
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.03.056a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+    </svg>
+    Join our Discord
+  </a>
+
+  <span class="footer-divider" aria-hidden="true">·</span>
+
+  <a href="https://github.com/VVVULTURE/red-portal-DKR-LCL" target="_blank" rel="noopener noreferrer" class="footer-link">
+    <!-- GitHub icon -->
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+      <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
+    </svg>
+    Source on GitHub
+  </a>
+</footer>
+
+<!--
+  defer: script executes after HTML is parsed, before DOMContentLoaded.
+  This gives us the performance of async (non-blocking) with the ordering
+  guarantee of a classic blocking script — best of both worlds.
+-->
+<script>
+/**
+ * Red Portal — script.js
+ * ======================
+ * Extracted from index.html and reorganised for clarity and maintainability.
+ * Wrapped in an IIFE so nothing leaks into the global scope.
+ *
+ * Sections:
+ *   1. Theme Config     — edit THEMES array to add/change themes
+ *   2. Theme Engine     — applies accent colours + background images
+ *   3. State            — shared mutable state
+ *   4. Navigation       — section switching
+ *   5. Search           — game filter
+ *   6. Proxy Toggle     — header on/off switch
+ *   7. Worker Config    — credits section URL management
+ *   8. Worker Modal     — config modal
+ *   9. Fetch Helpers    — smartFetch + HTML rewriting
+ *  10. Open Game        — opens game via proxy in new tab
+ *  11. Proxy Browser    — in-page browser with history
+ *  12. HTML Executor    — run typed / uploaded HTML
+ *  13. Google Form      — open-in-tab button
+ */
+
+(function () {
+  'use strict';
+
+  /* ── Safe localStorage wrapper (throws in private/file:// contexts) ── */
+  const store = {
+    get(k)    { try { return localStorage.getItem(k); }    catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); }        catch {} },
+    del(k)    { try { localStorage.removeItem(k); }        catch {} },
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
+     1. THEME CONFIG
+     ─────────────────────────────────────────────────────────────
+     Add or edit entries here to customise themes.
+     Each entry:
+       id    : unique string key (stored in localStorage)
+       name  : display name shown in the dropdown
+       color : hex accent colour (replaces all red in the UI)
+       bg    : path to background image (relative to index.html)
+               Set null for no background image.
+  ═══════════════════════════════════════════════════════════════ */
+  const THEMES = [
+    {
+      id:    'default',
+      name:  'Default',
+      color: '#FF2020',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/Default.PNG',
+    },
+    {
+      id:    'rain',
+      name:  'Rain',
+      color: '#4A9EFF',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/rain.gif',
+    },
+    {
+      id:    'summer',
+      name:  'Summer',
+      color: '#FFB800',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/summer.png',
+    },
+    {
+      id:    'Safe Landing',
+      name:  'Safe Landing',
+      color: '#ff2e97',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/A_Safe_Landing.jpeg',
+    },
+    {
+      id:    'Smooth Ride',
+      name:  'Smooth Ride',
+      color: '#7D7EB3',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/car.gif',
+    },
+    {
+      id:    'Wii Donut',
+      name:  'Wii Donut',
+      color: '#8A8A8A',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/wii-donut.gif',
+    },
+    {
+      id:    'Circles',
+      name:  'Circles',
+      color: '#2C00A1',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/circles.gif',
+    },
+    {
+      id:    'Mr. Aspin',
+      name:  'Mr. Aspin',
+      color: '#21A666',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/aspin.png',
+    },
+    /* ── Add more themes below ──────────────────────────────────
+    {
+      id:    'forest',
+      name:  'Forest',
+      color: '#3DBA6F',
+      bg:    'https://red-portal-service.koyeb.app/assets/themes/forest.jpg',
+    },
+    ─────────────────────────────────────────────────────────── */
+  ];
+  /* END THEME CONFIG ════════════════════════════════════════════ */
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     2. THEME ENGINE
+  ═══════════════════════════════════════════════════════════════ */
+  const THEME_KEY = 'rp_theme';
+
+  /** Convert 6-digit hex string to { r, g, b } integers. */
+  function hexToRgb(hex) {
+    return {
+      r: parseInt(hex.slice(1, 3), 16),
+      g: parseInt(hex.slice(3, 5), 16),
+      b: parseInt(hex.slice(5, 7), 16),
+    };
+  }
+
+  /** Apply a theme by id — sets CSS vars, background image, localStorage. */
+  function applyTheme(id) {
+    const theme = THEMES.find(t => t.id === id) || THEMES[0];
+    const { r, g, b } = hexToRgb(theme.color);
+    const root = document.documentElement.style;
+
+    root.setProperty('--accent',       theme.color);
+    root.setProperty('--accent-dim',   `rgb(${Math.round(r * 0.8)},${Math.round(g * 0.8)},${Math.round(b * 0.8)})`);
+    root.setProperty('--accent-glow',  `rgba(${r},${g},${b},0.33)`);
+    root.setProperty('--accent-faint', `rgba(${r},${g},${b},0.09)`);
+    root.setProperty('--border',       `rgba(${r},${g},${b},0.16)`);
+    root.setProperty('--border-hot',   `rgba(${r},${g},${b},0.53)`);
+    root.setProperty('--glow-sm',      `0 0 8px rgba(${r},${g},${b},0.38)`);
+    root.setProperty('--glow-md',      `0 0 18px rgba(${r},${g},${b},0.44), 0 0 40px rgba(${r},${g},${b},0.19)`);
+
+    // Background image — preload to avoid flash, then reveal
+    const bgEl = document.getElementById('theme-bg');
+    if (theme.bg) {
+      bgEl.classList.remove('loaded');
+      const img = new Image();
+      img.onload = () => {
+        bgEl.style.backgroundImage = `url('${theme.bg}')`;
+        bgEl.classList.add('loaded');
+        document.body.classList.add('has-bg');
+      };
+      img.onerror = () => {
+        bgEl.style.backgroundImage = 'none';
+        document.body.classList.remove('has-bg');
+      };
+      img.src = theme.bg;
+    } else {
+      bgEl.style.backgroundImage = 'none';
+      bgEl.classList.remove('loaded');
+      document.body.classList.remove('has-bg');
+    }
+
+    store.set(THEME_KEY, id);
+
+    // Sync active state in dropdown
+    document.querySelectorAll('.theme-option').forEach(opt => {
+      opt.classList.toggle('active', opt.dataset.themeId === id);
+    });
+  }
+
+  /** Build the theme dropdown list from the THEMES array. */
+  function buildThemeDropdown() {
+    const dropdown = document.getElementById('themeDropdown');
+    dropdown.innerHTML = '';
+    THEMES.forEach(theme => {
+      const opt = document.createElement('div');
+      opt.className = 'theme-option';
+      opt.dataset.themeId = theme.id;
+      opt.setAttribute('role', 'option');
+      opt.setAttribute('aria-label', theme.name);
+      opt.innerHTML = `<span class="theme-dot" style="background:${theme.color}" aria-hidden="true"></span>${theme.name}`;
+      opt.addEventListener('click', e => {
+        e.stopPropagation();
+        applyTheme(theme.id);
+        closeThemeDropdown();
+      });
+      dropdown.appendChild(opt);
+    });
+  }
+
+  const $themeWidget = document.getElementById('themeWidget');
+
+  function closeThemeDropdown() {
+    $themeWidget.classList.remove('open');
+    $themeWidget.setAttribute('aria-expanded', 'false');
+  }
+
+  $themeWidget.addEventListener('click', () => {
+    const isOpen = $themeWidget.classList.toggle('open');
+    $themeWidget.setAttribute('aria-expanded', String(isOpen));
+  });
+
+  // Keyboard support for theme widget
+  $themeWidget.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const isOpen = $themeWidget.classList.toggle('open');
+      $themeWidget.setAttribute('aria-expanded', String(isOpen));
+    }
+    if (e.key === 'Escape') closeThemeDropdown();
+  });
+
+  // Close on outside click
+  document.addEventListener('click', e => {
+    if (!$themeWidget.contains(e.target)) closeThemeDropdown();
+  });
+
+  // Boot: build and restore
+  buildThemeDropdown();
+  applyTheme(store.get(THEME_KEY) || 'default');
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     3. STATE
+  ═══════════════════════════════════════════════════════════════ */
+  const DEFAULT_WORKER = 'https://red-portal-service.koyeb.app/proxy';
+
+  const state = {
+    proxyOn:   true,
+    workerUrl: store.get('rp_worker_url') || DEFAULT_WORKER,
+  };
+
+  // Flag body so CSS can show JS-controlled section behaviour
+  document.body.classList.add('js');
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     4. NAVIGATION
+  ═══════════════════════════════════════════════════════════════ */
+  const SEARCH_SECTIONS = new Set(['games', 'Testing']);
+  const $searchBarWrap = document.getElementById('search-bar-wrap');
+
+  function showSection(id, activeLink) {
+    document.querySelectorAll('.section').forEach(s => {
+      s.classList.remove('active', 'section-enter');
+    });
+    document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+
+    const target = document.getElementById(id);
+    if (!target) return;
+
+    target.classList.add('active');
+    // rAF ensures class is visible before adding animation class
+    requestAnimationFrame(() => target.classList.add('section-enter'));
+
+    if (activeLink) activeLink.classList.add('active');
+
+    staggerCards(target);
+
+    $searchBarWrap.classList.toggle('visible', SEARCH_SECTIONS.has(id));
+  }
+
+  // Delegate all nav clicks to the parent element (one listener)
+  document.getElementById('mainNav').addEventListener('click', e => {
+    const link = e.target.closest('a[data-section]');
+    if (!link) return;
+    e.preventDefault();
+    showSection(link.dataset.section, link);
+  });
+
+  /** Replay card reveal animations with per-card stagger delay. */
+  function staggerCards(section) {
+    section.querySelectorAll('.game-btn').forEach((btn, i) => {
+      btn.style.animationDelay = `${i * 25}ms`;
+      btn.style.animation = 'none';
+      // Force reflow to restart animation
+      void btn.offsetWidth;
+      btn.style.animation = '';
+    });
+  }
+
+  // Show search bar on initial load (Games section is active by default)
+  $searchBarWrap.classList.add('visible');
+  staggerCards(document.getElementById('games'));
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     5. SEARCH
+  ═══════════════════════════════════════════════════════════════ */
+  document.getElementById('gameSearch').addEventListener('input', function () {
+    const q = this.value.toLowerCase().trim();
+    // Filter both grids simultaneously
+    document.querySelectorAll('#gamesGrid .game-btn, #preLaunchGrid .game-btn').forEach(btn => {
+      const name = btn.querySelector('span')?.textContent.toLowerCase() ?? '';
+      btn.classList.toggle('hidden', !!q && !name.includes(q));
+    });
+  });
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     6. PROXY TOGGLE
+  ═══════════════════════════════════════════════════════════════ */
+  const $corsWidget = document.getElementById('corsWidget');
+
+  function refreshProxyUI() {
+    $corsWidget.classList.toggle('on', state.proxyOn);
+    $corsWidget.setAttribute('aria-pressed', String(state.proxyOn));
+  }
+
+  $corsWidget.addEventListener('click', () => {
+    state.proxyOn = !state.proxyOn;
+    refreshProxyUI();
+  });
+
+  $corsWidget.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      state.proxyOn = !state.proxyOn;
+      refreshProxyUI();
+    }
+  });
+
+  refreshProxyUI();
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     7. WORKER CONFIG  (credits section)
+  ═══════════════════════════════════════════════════════════════ */
+  function updateCreditsDisplay() {
+    const el = document.getElementById('currentWorkerDisplay');
+    if (!el) return;
+    try { el.textContent = new URL(state.workerUrl).hostname; }
+    catch { el.textContent = state.workerUrl; }
+
+    const inp = document.getElementById('creditsWorkerInput');
+    if (inp && state.workerUrl !== DEFAULT_WORKER) inp.value = state.workerUrl;
+  }
+
+  function saveWorkerUrl(val, statusId) {
+    if (!val) { setStatus(statusId, 'Enter a Worker URL first.', 'err'); return false; }
+    try { new URL(val); }
+    catch { setStatus(statusId, 'Invalid URL — must start with https://', 'err'); return false; }
+    state.workerUrl = val;
+    store.set('rp_worker_url', val);
+    setStatus(statusId, '✓ Saved!', 'ok');
+    updateCreditsDisplay();
+    return true;
+  }
+
+  document.getElementById('btnCreditsSave').addEventListener('click', () => {
+    saveWorkerUrl(
+      document.getElementById('creditsWorkerInput').value.trim(),
+      'creditsWorkerStatus'
+    );
+  });
+
+  document.getElementById('btnCreditsReset').addEventListener('click', () => {
+    state.workerUrl = DEFAULT_WORKER;
+    store.del('rp_worker_url');
+    document.getElementById('creditsWorkerInput').value = '';
+    setStatus('creditsWorkerStatus', '✓ Reset to default worker.', 'ok');
+    updateCreditsDisplay();
+  });
+
+  document.getElementById('btnCreditsSetup').addEventListener('click', () => {
+    document.getElementById('modalWorkerInput').value =
+      state.workerUrl === DEFAULT_WORKER ? '' : state.workerUrl;
+    document.getElementById('modalSaveStatus').textContent = '';
+    document.getElementById('workerModal').classList.add('open');
+  });
+
+  updateCreditsDisplay();
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     8. WORKER MODAL
+  ═══════════════════════════════════════════════════════════════ */
+  const $modal = document.getElementById('workerModal');
+
+  function closeModal() { $modal.classList.remove('open'); }
+
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  document.getElementById('btnModalCancel').addEventListener('click', closeModal);
+
+  // Click outside modal box to close
+  $modal.addEventListener('click', e => {
+    if (e.target === $modal) closeModal();
+  });
+
+  // Escape key to close
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && $modal.classList.contains('open')) closeModal();
+  });
+
+  document.getElementById('btnModalSave').addEventListener('click', () => {
+    const ok = saveWorkerUrl(
+      document.getElementById('modalWorkerInput').value.trim(),
+      'modalSaveStatus'
+    );
+    if (ok) setTimeout(closeModal, 800);
+  });
+
+  document.getElementById('btnModalReset').addEventListener('click', () => {
+    state.workerUrl = DEFAULT_WORKER;
+    store.del('rp_worker_url');
+    document.getElementById('modalWorkerInput').value = '';
+    setStatus('modalSaveStatus', '✓ Reset to default.', 'ok');
+    updateCreditsDisplay();
+    setTimeout(closeModal, 800);
+  });
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     9. FETCH HELPERS
+  ═══════════════════════════════════════════════════════════════ */
+
+  /** Inject a <base> tag so relative URLs in the proxied page resolve correctly. */
+  function injectBase(html, url) {
+    const base = url.replace(/\/?$/, '/');
+    return html.replace(/<head[^>]*>/i, m => `${m}<base href="${base}">`);
+  }
+
+  /**
+   * Fetch a URL, optionally routing through the proxy worker.
+   * Returns { html, finalUrl }.
+   */
+  async function smartFetch(url) {
+    const fetchUrl = state.proxyOn
+      ? state.workerUrl.replace(/\/$/, '') + '?url=' + encodeURIComponent(url)
+      : url;
+    const res = await fetch(fetchUrl);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return { html: await res.text(), finalUrl: url };
+  }
+
+  /**
+   * Rewrite proxied HTML so all sub-resources and navigations go through
+   * the worker, and inject a shim script to intercept fetch/XHR/navigation.
+   */
+  function rewriteForProxy(html, baseUrl) {
+    const w   = state.workerUrl.replace(/\/$/, '');
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    function abs(v) {
+      if (!v) return null;
+      if (/^(data:|blob:|javascript:|#|mailto:|tel:)/.test(v.trim())) return null;
+      try { return new URL(v.trim(), baseUrl).href; } catch { return null; }
+    }
+
+    // Proxy static asset src attributes
+    doc.querySelectorAll('img[src],video[src],audio[src],source[src],track[src]').forEach(el => {
+      const a = abs(el.getAttribute('src'));
+      if (a) el.setAttribute('src', `${w}?url=${encodeURIComponent(a)}`);
+    });
+    doc.querySelectorAll('script[src]').forEach(el => {
+      const a = abs(el.getAttribute('src'));
+      if (a) el.setAttribute('src', `${w}?url=${encodeURIComponent(a)}`);
+    });
+    doc.querySelectorAll('link[href]').forEach(el => {
+      const a = abs(el.getAttribute('href'));
+      if (a) el.setAttribute('href', `${w}?url=${encodeURIComponent(a)}`);
+    });
+
+    // Proxy srcset (responsive images)
+    doc.querySelectorAll('[srcset]').forEach(el => {
+      const rewritten = el.getAttribute('srcset').split(',').map(part => {
+        const [u, ...desc] = part.trim().split(/\s+/);
+        const a = abs(u);
+        return a ? [`${w}?url=${encodeURIComponent(a)}`, ...desc].join(' ') : part;
+      }).join(', ');
+      el.setAttribute('srcset', rewritten);
+    });
+
+    // Mark anchor hrefs for the shim to intercept
+    doc.querySelectorAll('a[href]').forEach(el => {
+      const a = abs(el.getAttribute('href'));
+      if (!a) return;
+      el.setAttribute('data-pnav', a);
+    });
+
+    // Mark form actions for the shim
+    doc.querySelectorAll('form').forEach(el => {
+      const raw = el.getAttribute('action') || baseUrl;
+      const a   = abs(raw) || baseUrl;
+      el.setAttribute('data-pform', a);
+    });
+
+    // Inject the in-iframe shim as the very first child of <head>
+    const shim = doc.createElement('script');
+    shim.textContent = `(function(){
+  var W    = ${JSON.stringify(w)};
+  var BASE = ${JSON.stringify(baseUrl)};
+
+  var _baseU = new URL(BASE);
+
+  function px(u) {
+    if (!u || typeof u !== 'string') return u;
+    u = u.trim();
+    if (/^(data:|blob:|javascript:|#|mailto:|tel:)/.test(u)) return u;
+    try {
+      var abs = new URL(u, BASE).href;
+      if (abs.startsWith(W)) return abs;
+      return W + '?url=' + encodeURIComponent(abs);
+    } catch(e) { return u; }
+  }
+
+  /* Spoof window.location so the page reads the real URL */
+  try {
+    var _lp = Object.getPrototypeOf(window.location);
+    var _hd = Object.getOwnPropertyDescriptor(_lp, 'href');
+
+    var _spoofs = {
+      href:     function() { return BASE; },
+      origin:   function() { return _baseU.origin; },
+      protocol: function() { return _baseU.protocol; },
+      host:     function() { return _baseU.host; },
+      hostname: function() { return _baseU.hostname; },
+      port:     function() { return _baseU.port; },
+      pathname: function() { return _baseU.pathname; },
+      search:   function() { return _baseU.search; },
+      hash:     function() { return _baseU.hash; },
+    };
+    Object.keys(_spoofs).forEach(function(prop) {
+      try {
+        var d = Object.getOwnPropertyDescriptor(_lp, prop) || {};
+        Object.defineProperty(_lp, prop, { get: _spoofs[prop], set: d.set, configurable: true });
+      } catch(e) {}
+    });
+
+    if (_hd && _hd.set) {
+      Object.defineProperty(_lp, 'href', {
+        get: _spoofs.href,
+        set: function(v) {
+          try {
+            var a = new URL(String(v), BASE).href;
+            if (/^(blob:|about:|data:|javascript:)/.test(a)) { _hd.set.call(this, v); return; }
+            window.parent.postMessage({type:'rpNav', url: a}, '*');
+          } catch(e) { _hd.set.call(this, v); }
+        },
+        configurable: true,
+      });
+    }
+
+    var _oa = _lp.assign;
+    _lp.assign = function(v) {
+      try { window.parent.postMessage({type:'rpNav', url: new URL(String(v), BASE).href}, '*'); }
+      catch(e) { _oa && _oa.call(this, v); }
+    };
+    var _or = _lp.replace;
+    _lp.replace = function(v) {
+      try { window.parent.postMessage({type:'rpNav', url: new URL(String(v), BASE).href}, '*'); }
+      catch(e) { _or && _or.call(this, v); }
+    };
+  } catch(e) {}
+
+  /* Intercept programmatic form.submit() */
+  try {
+    var _fs = HTMLFormElement.prototype.submit;
+    HTMLFormElement.prototype.submit = function() {
+      var f      = this;
+      var action = f.getAttribute('data-pform') || f.getAttribute('action') || BASE;
+      var method = (f.getAttribute('method') || 'get').toLowerCase();
+      try { action = new URL(action, BASE).href; } catch(e) {}
+      if (method === 'get') {
+        var qs = new URLSearchParams(new FormData(f)).toString();
+        window.parent.postMessage({type:'rpNav', url: action + (qs ? '?' + qs : '')}, '*');
+      } else {
+        fetch(px(action), {method:'POST', body: new FormData(f)})
+          .then(function(r){ return r.text(); })
+          .then(function(html){ window.parent.postMessage({type:'rpHtml', url: action, html: html}, '*'); })
+          .catch(function(){});
+      }
+    };
+  } catch(e) {}
+
+  /* Proxy fetch */
+  var _fetch = window.fetch;
+  window.fetch = function(resource, opts) {
+    if (typeof resource === 'string') resource = px(resource);
+    else if (resource && typeof resource === 'object' && resource.url) {
+      try { resource = new Request(px(resource.url), resource); } catch(e){}
+    }
+    return _fetch.call(window, resource, opts);
+  };
+
+  /* Proxy XHR */
+  var _xhrOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    var rest = Array.prototype.slice.call(arguments, 2);
+    return _xhrOpen.apply(this, [method, px(url)].concat(rest));
+  };
+
+  /* window.open → navigate in parent */
+  window.open = function(url) {
+    try { window.parent.postMessage({type:'rpNav', url: new URL(url||'', BASE).href}, '*'); }
+    catch(e) {}
+    return null;
+  };
+
+  /* history.pushState / replaceState */
+  ['pushState','replaceState'].forEach(function(method) {
+    var orig = history[method];
+    history[method] = function(state, title, url) {
+      orig.apply(history, arguments);
+      if (url) {
+        try {
+          _baseU = new URL(url, BASE);
+          BASE   = _baseU.href;
+          window.parent.postMessage({type:'rpUrlChange', url: BASE}, '*');
+        } catch(e) {}
+      }
+    };
+  });
+
+  /* Link click interception */
+  document.addEventListener('click', function(e) {
+    var el = e.target.closest('a[data-pnav]');
+    if (!el) return;
+    var href = el.getAttribute('data-pnav');
+    if (!href || href.startsWith('#')) return;
+    e.preventDefault();
+    window.parent.postMessage({type:'rpNav', url: href}, '*');
+  }, true);
+
+  /* Form submit event */
+  document.addEventListener('submit', function(e) {
+    var f      = e.target;
+    var action = f.getAttribute('data-pform') || BASE;
+    e.preventDefault();
+    var method = (f.method || 'get').toLowerCase();
+    if (method === 'get') {
+      var qs = new URLSearchParams(new FormData(f)).toString();
+      window.parent.postMessage({type:'rpNav', url: action + (qs ? '?' + qs : '')}, '*');
+    } else {
+      fetch(px(action), {method:'POST', body: new FormData(f)})
+        .then(function(r){ return r.text(); })
+        .then(function(html){
+          window.parent.postMessage({type:'rpHtml', url: action, html: html}, '*');
+        }).catch(function(){});
+    }
+  }, true);
+
+})();`;
+
+    const head = doc.head || doc.documentElement;
+    head.insertBefore(shim, head.firstChild);
+
+    return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     10. OPEN GAME (new tab via proxy)
+  ═══════════════════════════════════════════════════════════════ */
+
+  /** Resolve raw address bar input → absolute URL or Startpage search. */
+  function resolveInput(raw) {
+    const s = raw.trim();
+    if (!s) return null;
+    if (/^https?:\/\//i.test(s)) return s;
+    if (!s.includes(' ') && /\.\w{2,}/.test(s)) return 'https://' + s;
+    return 'https://www.startpage.com/do/dsearch?query=' + encodeURIComponent(s);
+  }
+
+  /**
+   * Trigger a new-tab navigation using a programmatic <a> click.
+   * Avoids window.open() which recurses infinitely in blob/iframe contexts.
+   */
+  function triggerOpen(blobOrUrl) {
+    const a = document.createElement('a');
+    a.href      = blobOrUrl;
+    a.target    = '_blank';
+    a.rel       = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  /**
+   * Open a game URL in a new tab, routing HTML through the proxy
+   * and injecting a base tag so relative paths resolve correctly.
+   */
+  function openGame(url) {
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+    smartFetch(url)
+      .then(({ html, finalUrl }) => {
+        const blob    = new Blob([injectBase(html, finalUrl)], { type: 'text/html' });
+        const blobUrl = URL.createObjectURL(blob);
+        triggerOpen(blobUrl);
+      })
+      .catch(e => {
+        // Proxy failed — open the game URL directly as a fallback
+        console.warn('Proxy fetch failed, opening directly:', e.message);
+        triggerOpen(url);
+      });
+  }
+
+  // Delegate game grid clicks (both grids share one handler each)
+  ['gamesGrid', 'preLaunchGrid'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', e => {
+      const link = e.target.closest('.game-btn');
+      if (!link) return;
+      e.preventDefault();
+      openGame(link.href);
+    });
+  });
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     11. IN-PAGE PROXY BROWSER
+  ═══════════════════════════════════════════════════════════════ */
+  const bState   = { history: [], index: -1, current: null };
+  const $frame   = document.getElementById('browserFrame');
+  const $urlBar  = document.getElementById('browserUrl');
+  const $loading = document.getElementById('browserLoading');
+  const $loadTxt = document.getElementById('browserLoadingText');
+  const $welcome = document.getElementById('browserWelcome');
+  const $bStatus = document.getElementById('browserStatus');
+  const $btnBack = document.getElementById('btnBack');
+  const $btnFwd  = document.getElementById('btnForward');
+
+  function bSetLoading(on, msg) {
+    $loading.classList.toggle('active', on);
+    if (msg) $loadTxt.textContent = msg;
+  }
+
+  function bUpdateNav() {
+    $btnBack.disabled = bState.index <= 0;
+    $btnFwd.disabled  = bState.index >= bState.history.length - 1;
+  }
+
+  async function browserNavigate(url) {
+    if (!url) return;
+    bState.current = url;
+    $urlBar.value  = url;
+    $welcome.style.display = 'none';
+    bSetLoading(true, 'Loading…');
+    $bStatus.textContent = '';
+    $bStatus.className   = 'status';
+
+    try {
+      const { html, finalUrl } = await smartFetch(url);
+      const rewritten = rewriteForProxy(html, finalUrl);
+
+      if (bState.history[bState.index] !== url) {
+        bState.history = bState.history.slice(0, bState.index + 1);
+        bState.history.push(url);
+        bState.index = bState.history.length - 1;
+      }
+
+      bUpdateNav();
+      $frame.srcdoc = rewritten;
+      bSetLoading(false);
+    } catch (e) {
+      bSetLoading(false);
+      $frame.srcdoc =
+        `<body style="background:#0a0a10;color:#e4e4f0;font-family:monospace;padding:2rem">` +
+        `<h2 style="color:#FF2020">⚠ Failed to load</h2>` +
+        `<p>${e.message}</p>` +
+        `<p style="color:#6a6a8a;margin-top:.5rem">Ensure the Proxy toggle is ON and your worker is reachable.</p>` +
+        `</body>`;
+      setStatus('browserStatus', '⚠ ' + e.message, 'err');
+    }
+  }
+
+  // Messages from the injected shim inside the iframe
+  window.addEventListener('message', e => {
+    if (!e.data) return;
+    const { type, url, html } = e.data;
+
+    if (type === 'rpNav' && url) {
+      browserNavigate(url);
+    } else if (type === 'rpHtml' && html) {
+      const rewritten = rewriteForProxy(html, url || bState.current);
+      $frame.srcdoc = rewritten;
+      if (url) { $urlBar.value = url; bState.current = url; }
+    } else if (type === 'rpUrlChange' && url) {
+      $urlBar.value  = url;
+      bState.current = url;
+      if (bState.history[bState.index] !== url) {
+        bState.history = bState.history.slice(0, bState.index + 1);
+        bState.history.push(url);
+        bState.index = bState.history.length - 1;
+        bUpdateNav();
+      }
+    }
+  });
+
+  // Browser controls
+  document.getElementById('btnGo').addEventListener('click', () => {
+    const resolved = resolveInput($urlBar.value);
+    if (resolved) browserNavigate(resolved);
+  });
+
+  $urlBar.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const resolved = resolveInput($urlBar.value);
+      if (resolved) browserNavigate(resolved);
+    }
+  });
+
+  $btnBack.addEventListener('click', () => {
+    if (bState.index > 0) browserNavigate(bState.history[--bState.index]);
+  });
+
+  $btnFwd.addEventListener('click', () => {
+    if (bState.index < bState.history.length - 1) browserNavigate(bState.history[++bState.index]);
+  });
+
+  document.getElementById('btnRefresh').addEventListener('click', () => {
+    if (bState.current) browserNavigate(bState.current);
+  });
+
+  // Fullscreen (native Fullscreen API + CSS class fallback)
+  const $shell = document.getElementById('browserShell');
+  const $fsBtn = document.getElementById('btnFullscreen');
+
+  function enterFs() {
+    if ($shell.requestFullscreen)            $shell.requestFullscreen().catch(() => cssFallback(true));
+    else if ($shell.webkitRequestFullscreen) $shell.webkitRequestFullscreen();
+    else cssFallback(true);
+  }
+  function exitFs() {
+    if (document.exitFullscreen && document.fullscreenElement) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    cssFallback(false);
+  }
+  function cssFallback(on) {
+    $shell.classList.toggle('fs', on);
+    document.body.style.overflow = on ? 'hidden' : '';
+  }
+  function updateFsBtn(on) {
+    $fsBtn.textContent = on ? '✕' : '⛶';
+    $fsBtn.title       = on ? 'Exit Fullscreen' : 'Fullscreen';
+    $fsBtn.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
+  }
+
+  $fsBtn.addEventListener('click', () => {
+    const isFs = !!document.fullscreenElement || $shell.classList.contains('fs');
+    isFs ? exitFs() : enterFs();
+    updateFsBtn(!isFs);
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    const on = !!document.fullscreenElement;
+    cssFallback(on);
+    updateFsBtn(on);
+  });
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     12. HTML EXECUTOR
+  ═══════════════════════════════════════════════════════════════ */
+  document.getElementById('btnRunHtml').addEventListener('click', () => {
+    const html = document.getElementById('htmlInput').value;
+    if (!html.trim()) { setStatus('execTypedStatus', 'Enter HTML first.', 'err'); return; }
+    triggerOpen(URL.createObjectURL(new Blob([html], { type: 'text/html' })));
+    setStatus('execTypedStatus', 'Executed in new tab.', 'ok');
+  });
+
+  document.getElementById('btnOpenFile').addEventListener('click', () => {
+    const input = document.getElementById('fileInput');
+    const file  = input.files[0];
+    if (!file) { setStatus('execFileStatus', 'Select a file first.', 'err'); return; }
+    const reader = new FileReader();
+    reader.onload  = e => {
+      triggerOpen(URL.createObjectURL(new Blob([e.target.result], { type: 'text/html' })));
+      setStatus('execFileStatus', 'File executed in new tab.', 'ok');
+      input.value = '';
+    };
+    reader.onerror = () => setStatus('execFileStatus', 'Failed to read file.', 'err');
+    reader.readAsText(file);
+  });
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     13. REQUEST FORM — POSTs to /api/request → Discord webhook
+  ═══════════════════════════════════════════════════════════════ */
+  const $btnSubmit = document.getElementById('btnSubmitRequest');
+  const $reqName   = document.getElementById('reqName');
+  const $reqType   = document.getElementById('reqType');
+  const $reqNotes  = document.getElementById('reqNotes');
+  const $reqAlias  = document.getElementById('reqAlias');
+
+  // Simple flag to prevent accidental double-submits
+  let reqCooldown = false;
+
+  $btnSubmit.addEventListener('click', async () => {
+    const name = $reqName.value.trim();
+
+    if (!name) {
+      setStatus('requestStatus', '⚠ Please enter a game or service name.', 'err');
+      $reqName.focus();
+      return;
+    }
+
+    if (reqCooldown) {
+      setStatus('requestStatus', '⏳ Please wait a moment before submitting again.', 'err');
+      return;
+    }
+
+    $btnSubmit.disabled    = true;
+    $btnSubmit.textContent = '⏳ Sending…';
+    setStatus('requestStatus', '', '');
+
+    const payload = {
+      name,
+      type:      $reqType.value,
+      notes:     $reqNotes.value.trim() || null,
+      submitter: $reqAlias.value.trim() || null,
+    };
+
+    try {
+      const res  = await fetch('https://red-portal-service.koyeb.app/api/request', {
+        method:  'POST',
+        headers: { 'content-type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        setStatus('requestStatus', '✓ Request sent! We\'ll look into it.', 'ok');
+        // Clear fields on success
+        $reqName.value  = '';
+        $reqNotes.value = '';
+        $reqAlias.value = '';
+        $reqType.value  = 'Game';
+        // 10 s cooldown to prevent spam
+        reqCooldown = true;
+        setTimeout(() => { reqCooldown = false; }, 10000);
+      } else {
+        setStatus('requestStatus', '⚠ ' + (data.error || 'Server error — try again.'), 'err');
+      }
+    } catch (_) {
+      setStatus('requestStatus', '⚠ Could not reach server. Is server.js running?', 'err');
+    } finally {
+      $btnSubmit.disabled    = false;
+      $btnSubmit.textContent = '📨 Submit Request';
+    }
+  });
+
+  // Allow Enter key in the name field to submit
+  $reqName.addEventListener('keydown', e => {
+    if (e.key === 'Enter') $btnSubmit.click();
+  });
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     UTILITIES  (used throughout)
+  ═══════════════════════════════════════════════════════════════ */
+
+  /**
+   * Display a temporary status message.
+   * @param {string} id       - element id
+   * @param {string} msg      - message text
+   * @param {'ok'|'err'} type - colour class
+   */
+  function setStatus(id, msg, type) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = msg;
+    el.className   = 'status' + (type ? ' ' + type : '');
+    // Auto-clear non-browser status messages after 3.5 s
+    if (msg && id !== 'browserStatus') {
+      setTimeout(() => {
+        el.textContent = '';
+        el.className   = 'status';
+      }, 3500);
+    }
+  }
+
+})(); // end IIFE
+
+</script>
+</body>
+</html>

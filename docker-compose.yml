@@ -1,0 +1,43 @@
+# ── Red Portal — Docker Compose ───────────────────────────────────
+# Quick start:
+#   docker compose up          → build + run (foreground, Ctrl+C to stop)
+#   docker compose up -d       → run in background
+#   docker compose down        → stop + remove container
+#   docker compose up --build  → force a fresh image rebuild
+#
+# Site:     http://localhost:3001
+# Requests: http://localhost:3001/api/request  (→ bot on Banana Pi)
+#
+# The Discord bot runs separately on your Banana Pi — not here.
+# Fill in BOT_URL and BOT_SECRET before starting.
+
+services:
+
+  red-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    ports:
+      - "3001:3001"
+
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+
+      # Full URL to your bot's HTTP listener on the Banana Pi
+      # Replace the IP with the actual IP of your Banana Pi
+      - BOT_URL=https://boneless-parcel-reputable.ngrok-free.dev/post-request
+
+      # Must match BOT_SECRET set in your bot.js environment
+      # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - BOT_SECRET=0fffaa699dd1422eac9cf419d1649f8ff9b346d9594450c51987ba8a61003ba3
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
