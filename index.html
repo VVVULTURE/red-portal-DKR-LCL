@@ -1252,7 +1252,7 @@ footer {
   justify-content: center;
   background: var(--bg);
   opacity: 1;
-  transition: opacity 8s ease;
+  transition: opacity 0.6s ease;
 }
 
 #intro-overlay.fade-out {
@@ -1299,9 +1299,9 @@ footer {
       return;
     }
 
-    /* GIF: 28 frames × 70 ms ≈ 1960 ms for one play.
+    /* GIF: 240 frames × 8000 ms ≈ 1920000 ms for one play.
        Hold briefly on the final frame, then fade and remove. */
-    var PLAY_MS = 1960;
+    var PLAY_MS = 1920000;
     var HOLD_MS = 250;
     var FADE_MS = 600;   /* must match the CSS transition duration */
 
