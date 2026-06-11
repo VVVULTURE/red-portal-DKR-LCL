@@ -1,0 +1,14 @@
+{
+  "name": "red-portal-local",
+  "version": "2.0.0",
+  "description": "Red Portal — local build with built-in proxy server (no Cloudflare Worker needed)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev":   "node server.js"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "license": "MIT"
+}
