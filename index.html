@@ -1186,6 +1186,51 @@ footer {
   #intro-overlay { display: none; }
 }
 
+/* ── 16. AD OVERLAY ────────────────────────────────────────────── */
+/*
+   Full-screen ad shown once after the intro finishes, then again
+   every 5 minutes while the page stays open. Sits one layer below
+   the intro (99999) so the intro always wins if both are present.
+   Hidden state keeps display:flex but opacity:0 + pointer-events:none
+   so the opacity transition animates cleanly in both directions.
+*/
+#ad-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+
+#ad-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#ad-overlay a {
+  display: block;
+  line-height: 0;
+}
+
+#ad-overlay img {
+  max-width: min(90vw, 500px);
+  max-height: 85vh;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 48px rgba(0, 0, 0, 0.8);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #ad-overlay { transition: none; }
+}
+
   </style>
 </head>
 <body>
@@ -1205,10 +1250,13 @@ footer {
     var overlay = document.getElementById('intro-overlay');
     if (!overlay) return;
 
-    /* Skip the intro entirely for users who prefer reduced motion. */
+    /* Skip the intro entirely for users who prefer reduced motion.
+       Still mark the intro as "done" so the ad overlay shows. */
     if (window.matchMedia &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       overlay.remove();
+      window.__introDone = true;
+      if (typeof window.__onIntroDone === 'function') window.__onIntroDone();
       return;
     }
 
@@ -1233,20 +1281,85 @@ footer {
       }
     }
 
+    var dismissed = false;
     function dismiss() {
+      if (dismissed) return;   /* click-to-skip + timer can both fire */
+      dismissed = true;
       /* Stop audio immediately, in sync with the fade-out. */
       if (audio) {
         audio.pause();
         audio.currentTime = 0;
       }
       overlay.classList.add('fade-out');
-      setTimeout(function () { overlay.remove(); }, FADE_MS);
+      setTimeout(function () {
+        overlay.remove();
+        /* Tell the ad overlay the intro is finished. */
+        window.__introDone = true;
+        if (typeof window.__onIntroDone === 'function') window.__onIntroDone();
+      }, FADE_MS);
     }
 
     /* Click anywhere on the overlay to skip */
     overlay.addEventListener('click', dismiss);
 
     setTimeout(dismiss, PLAY_MS + HOLD_MS);
+  })();
+</script>
+
+<!-- ═══════════════════════════════
+     AD OVERLAY
+     Shows /assets/HELP_BRING_BACK.png once after the intro finishes,
+     holds it on screen for 5 s, fades it out, then repeats the cycle
+     every 5 minutes for as long as the page stays open. Clicking the
+     image opens the petition link in a new tab (the ad still runs its
+     full 5 seconds).
+═══════════════════════════════ -->
+<div id="ad-overlay" aria-hidden="true">
+  <a
+    id="ad-link"
+    href="https://c.org/d6wnMcW67J"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    <img
+      src="/assets/HELP_BRING_BACK.png"
+      alt="Help bring back the greatest show of all time — click to sign the petition"
+    />
+  </a>
+</div>
+<script>
+  (function () {
+    var AD_HOLD_MS   = 5000;          /* time fully visible before fading */
+    var AD_FADE_MS   = 600;           /* must match the CSS transition    */
+    var AD_REPEAT_MS = 5 * 60 * 1000; /* repeat interval: 5 minutes       */
+
+    var ad = document.getElementById('ad-overlay');
+    if (!ad) return;
+
+    var showing = false;
+    function showAd() {
+      if (showing) return;
+      showing = true;
+      ad.classList.add('show');
+      ad.setAttribute('aria-hidden', 'false');
+      setTimeout(function () {
+        ad.classList.remove('show');
+        ad.setAttribute('aria-hidden', 'true');
+        setTimeout(function () { showing = false; }, AD_FADE_MS);
+      }, AD_HOLD_MS);
+    }
+
+    /* First showing: triggered by the intro script when the intro has
+       fully faded out — or immediately, if the intro already finished
+       (or was skipped for reduced-motion users) before this ran. */
+    if (window.__introDone) {
+      showAd();
+    } else {
+      window.__onIntroDone = showAd;
+    }
+
+    /* Repeat every 5 minutes while the page is open. */
+    setInterval(showAd, AD_REPEAT_MS);
   })();
 </script>
 
