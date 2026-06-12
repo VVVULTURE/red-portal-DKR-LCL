@@ -247,46 +247,192 @@ header::before {
 .logo:hover { filter: drop-shadow(0 0 16px rgba(255, 32, 32, 0.7)); }
 .logo img { height: 52px; width: auto; }
 
-/* ── 10. MAIN CONTENT ────────────────────────────────────────── */
-.sp-panel-btn {
+/* ── Nav ── */
+nav {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+nav a {
+  position: relative;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0.36rem 0.85rem;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  transition:
+    color var(--t-std) var(--ease-std),
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std),
+    transform var(--t-fast) var(--ease-std);
+}
+
+/* Sliding fill on hover */
+nav a::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--t-std) var(--ease-std);
+  z-index: -1;
+}
+
+nav a:hover {
+  color: #fff;
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--glow-sm);
+}
+nav a:hover::before { transform: scaleX(1); }
+
+nav a.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: var(--glow-sm);
+}
+nav a.active::before { transform: scaleX(1); }
+
+/* ── 8. PROXY TOGGLE ─────────────────────────────────────────── */
+.cors-widget {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: var(--sp-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-xs) 0.75rem;
+  user-select: none;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition:
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.cors-widget:hover { border-color: var(--accent); box-shadow: var(--glow-sm); }
+
+.cors-label {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  transition: color var(--t-std) var(--ease-std);
+}
+.cors-widget.on .cors-label { color: var(--accent); }
+
+.toggle-track {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  flex-shrink: 0;
+  transition:
+    background var(--t-std) var(--ease-std),
+    border-color var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.cors-widget.on .toggle-track {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: var(--glow-sm);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition:
+    transform var(--t-std) var(--ease-std),
+    background var(--t-std) var(--ease-std);
+  will-change: transform;
+}
+.cors-widget.on .toggle-thumb {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.proxy-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  transition:
+    background var(--t-std) var(--ease-std),
+    box-shadow var(--t-std) var(--ease-std);
+}
+.cors-widget.on .proxy-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: status-pulse 1.5s ease infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── 9b. SIDE PANEL TRIGGER ──────────────────────────────────── */
+.side-panel-trigger-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
   margin-left: auto;
+}
+
+.side-panel-arrow-btn {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-muted);
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  padding: 0.42rem 0.85rem;
-  flex-shrink: 0;
+  font-size: 0.6rem;
+  width: 100%;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   transition:
     color var(--t-std) var(--ease-std),
     border-color var(--t-std) var(--ease-std),
-    box-shadow var(--t-std) var(--ease-std);
+    box-shadow var(--t-std) var(--ease-std),
+    transform var(--t-fast) var(--ease-std);
+  line-height: 1;
+  padding: 0;
 }
-.sp-panel-btn:hover {
+.side-panel-arrow-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
   box-shadow: var(--glow-sm);
 }
-.sp-panel-btn.open {
+.side-panel-arrow-btn.open {
   color: var(--accent);
   border-color: var(--accent);
   box-shadow: var(--glow-sm);
-}
-.sp-panel-btn svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  transition: transform 0.22s var(--ease-std);
-}
-.sp-panel-btn.open svg {
-  transform: rotate(90deg);
+  transform: rotate(180deg);
 }
 
 /* ── 9c. SIDE PANEL ─────────────────────────────────────────── */
@@ -448,49 +594,6 @@ header::before {
   border-radius: 50%;
   flex-shrink: 0;
   border: 1px solid rgba(255, 255, 255, 0.25);
-}
-
-/* ── Navigation items inside side panel ── */
-.sp-nav-list {
-  padding: 0.35rem 0.65rem 0.7rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.sp-nav-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.55rem 0.75rem;
-  border-radius: var(--radius-sm);
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 0.9rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text);
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid transparent;
-  text-align: left;
-  transition:
-    background var(--t-std) var(--ease-std),
-    color var(--t-std) var(--ease-std),
-    border-color var(--t-std) var(--ease-std),
-    transform var(--t-fast) var(--ease-std);
-}
-.sp-nav-btn:hover {
-  background: var(--accent-faint);
-  color: var(--accent);
-  border-color: var(--border);
-  transform: translateX(3px);
-}
-.sp-nav-btn.active {
-  background: var(--accent-faint);
-  color: var(--accent);
-  border-color: var(--border-hot);
 }
 
 /* ── Standalone buttons in side panel ── */
@@ -890,87 +993,7 @@ label.section-label {
 .status.ok  { color: var(--green); }
 .status.err { color: var(--red-err); }
 
-/* ── 18. MODAL ───────────────────────────────────────────────── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  z-index: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s ease;
-}
-.modal-overlay.open { opacity: 1; pointer-events: all; }
-
-.modal {
-  background: var(--surface);
-  border: 1px solid var(--border-hot);
-  border-radius: var(--radius-lg);
-  padding: var(--sp-xl);
-  max-width: 560px;
-  width: calc(100% - var(--sp-xl));
-  box-shadow: var(--glow-md), var(--card-shadow);
-  position: relative;
-  transform: translateY(20px);
-  transition: transform 0.3s var(--ease-out);
-}
-.modal-overlay.open .modal { transform: translateY(0); }
-
-.modal h3 {
-  font-family: 'Rajdhani', sans-serif;
-  font-weight: 700;
-  font-size: 1.15rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: var(--sp-md);
-}
-.modal p,
-.modal li {
-  font-size: 0.9rem;
-  line-height: 1.65;
-  color: var(--text);
-  margin-bottom: 0.5rem;
-}
-.modal ol { padding-left: 1.2rem; }
-.modal pre {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.85rem;
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 0.76rem;
-  color: #a0ffa0;
-  overflow-x: auto;
-  margin: 0.75rem 0;
-  line-height: 1.5;
-}
-
-.modal-close {
-  position: absolute;
-  top: 0.85rem;
-  right: 0.85rem;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 1.2rem;
-  padding: 0.25rem;
-  border-radius: 4px;
-  transition: color var(--t-std) var(--ease-std);
-}
-.modal-close:hover { color: var(--accent); }
-
-.modal-actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: var(--sp-lg);
-  flex-wrap: wrap;
-}
+/* ── 17. FORM / CREDITS (layout helpers) ─────────────────────── */
 
 /* ── 20. FORM / CREDITS ──────────────────────────────────────── */
 .form-iframe-wrap {
@@ -1042,6 +1065,11 @@ label.section-label {
     gap: 0.5rem;
   }
 
+  nav a {
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+  }
+
   .games-grid {
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
     gap: 0.4rem;
@@ -1062,13 +1090,13 @@ label.section-label {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .modal { padding: var(--sp-lg); }
+  nav { gap: 0.2rem; }
+  nav a { font-size: 0.74rem; padding: 0.28rem 0.5rem; }
 }
 
 /* ── 24. PRINT ───────────────────────────────────────────────── */
 @media print {
-  header, #search-bar-wrap, .sp-panel-btn, .side-panel-overlay,
-  .modal-overlay { display: none !important; }
+  header, #search-bar-wrap, .side-panel-overlay { display: none !important; }
   body { background: #fff; color: #000; }
   .section { display: block !important; }
 }
@@ -1231,25 +1259,44 @@ footer {
      HEADER
 ═══════════════════════════════ -->
 <header role="banner">
-  <!-- Logo (also acts as home link) -->
+  <!-- Logo → always navigates to Games section -->
   <a class="logo" href="#games" data-section="games" aria-label="Red Portal — go to Games">
     <img src="https://red-portal-service.koyeb.app/assets/logo/logo.png" alt="Red Portal" width="52" height="52" />
   </a>
 
-  <!-- Panel trigger button -->
-  <button
-    class="sp-panel-btn"
-    id="sidePanelArrowBtn"
-    aria-label="Open navigation menu"
-    aria-expanded="false"
-  >
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-      <line x1="2" y1="4" x2="14" y2="4"/>
-      <line x1="2" y1="8" x2="14" y2="8"/>
-      <line x1="2" y1="12" x2="14" y2="12"/>
-    </svg>
-    Menu
-  </button>
+  <!-- Primary navigation -->
+  <nav id="mainNav" aria-label="Main navigation">
+    <a class="active" href="#games"   data-section="games">🎮 Games</a>
+    <a href="#form"                  data-section="form">📋 Requests</a>
+    <a href="#executor"              data-section="executor">💻 Executor</a>
+    <a href="#credits"               data-section="credits">🏆 Credits</a>
+    <a href="#Testing"               data-section="Testing">🧪 Testing</a>
+  </nav>
+
+  <!-- CORS proxy toggle + side panel trigger -->
+  <div class="side-panel-trigger-wrap">
+    <div
+      class="cors-widget"
+      id="corsWidget"
+      role="button"
+      tabindex="0"
+      aria-pressed="true"
+      aria-label="Toggle CORS proxy"
+    >
+      <div class="proxy-status-dot" aria-hidden="true"></div>
+      <span class="cors-label">Proxy</span>
+      <div class="toggle-track" aria-hidden="true">
+        <div class="toggle-thumb"></div>
+      </div>
+    </div>
+    <button
+      class="side-panel-arrow-btn"
+      id="sidePanelArrowBtn"
+      aria-label="Open side menu"
+      aria-expanded="false"
+      tabindex="0"
+    >▼</button>
+  </div>
 </header>
 
 <!-- ═══════════════════════════════
@@ -1258,30 +1305,6 @@ footer {
 <div class="side-panel-overlay" id="sidePanelOverlay" aria-hidden="true">
   <div class="side-panel-backdrop" id="sidePanelBackdrop"></div>
   <div class="side-panel" id="sidePanel" role="dialog" aria-label="Settings panel">
-
-    <!-- ── Navigation section ── -->
-    <div class="sp-section open" id="spNavSection">
-      <div class="sp-section-header" id="spNavHeader" role="button" tabindex="0" aria-expanded="true" aria-controls="spNavBody">
-        <span class="sp-section-title">
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-            <rect x="2" y="3" width="12" height="2" rx="1"/>
-            <rect x="2" y="7" width="12" height="2" rx="1"/>
-            <rect x="2" y="11" width="12" height="2" rx="1"/>
-          </svg>
-          Navigate
-        </span>
-        <span class="sp-section-chevron" aria-hidden="true">▼</span>
-      </div>
-      <div class="sp-section-body" id="spNavBody">
-        <div class="sp-nav-list">
-          <button class="sp-nav-btn active" data-section="games">🎮 Games</button>
-          <button class="sp-nav-btn" data-section="form">📋 Requests</button>
-          <button class="sp-nav-btn" data-section="executor">💻 Executor</button>
-          <button class="sp-nav-btn" data-section="credits">🏆 Credits</button>
-          <button class="sp-nav-btn" data-section="Testing">🧪 Testing</button>
-        </div>
-      </div>
-    </div>
 
     <!-- ── Theme section ── -->
     <div class="sp-section open" id="spThemeSection">
@@ -1410,7 +1433,7 @@ footer {
         <a class="game-btn" href="https://snow-rider3-d-five.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Snow Rider 3D</span></a>
         <a class="game-btn" href="https://spongebob-bfbb.onrender.com/" target="_blank" rel="noopener noreferrer"><span>SpongeBob BFBB (GBA)</span></a>
         <a class="game-btn" href="https://stardew-valley-iframe.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Stardew Valley</span></a>
-        <a class="game-btn" href="https://stickman-hook-five.vercel.app" target="_blank" rel="noopener noreferrer"><span>Stickman Hook</span></a>  
+        <a class="game-btn" href="https://stickman-hook-five.vercel.app" target="_blank" rel="noopener noreferrer"><span>Stickman Hook</span></a>
         <a class="game-btn" href="https://effortless-sawine-4f7574.netlify.app/" target="_blank" rel="noopener noreferrer"><span>Tanks 3D</span></a>
         <a class="game-btn" href="https://tanish-ifm.vercel.app/" target="_blank" rel="noopener noreferrer"><span>Tanish Life Simulator</span></a>
         <a class="game-btn" href="https://verdant-malasada-1a8b64.netlify.app/" target="_blank" rel="noopener noreferrer"><span>The Impossible Quiz</span></a>
@@ -1559,25 +1582,7 @@ footer {
           </li>
           <li class="credit-row">
             <span class="credit-name">DeviDrawz</span>
-            <span class="credit-role">Logo Designer &amp; Main Artist  (Play Drive Mad Mind At https://play.fancade.com/68FADFA66D195DFE)</span>
-          </li>
-          </li>
-          <li class="credit-row">
-            <span class="credit-name">Mr. Aspin</span>
-            <span class="credit-role">"Teacher Tolerance Is Low"</span>
-          </li>
-          </li>
-          <li class="credit-row">
-            <span class="credit-name">DultzyWaltzy</span>
-            <span class="credit-role">Clarified the purpose of the function that determines input type</span>
-          </li>
-          <li class="credit-row">
-            <span class="credit-name">TheGuyThatExists</span>
-            <span class="credit-role">Requested 2,738,369,392,472 games as of 5/26</span>
-          </li>
-          <li class="credit-row">
-            <span class="credit-name">James Gross</span>
-            <span class="credit-role">Moral Support</span>
+            <span class="credit-role">Logo Designer &amp; Main Artist — Play Drive Mad Mind at https://play.fancade.com/68FADFA66D195DFE</span>
           </li>
         </ul>
 
@@ -1626,19 +1631,19 @@ footer {
 /**
  * Red Portal — script.js
  * ======================
- * Extracted from index.html and reorganised for clarity and maintainability.
  * Wrapped in an IIFE so nothing leaks into the global scope.
  *
  * Sections:
  *   1. Theme Config     — edit THEMES array to add/change themes
  *   2. Theme Engine     — applies accent colours + background images
- *   3. State            — shared mutable state
- *   4. Navigation       — section switching (side panel buttons)
+ *   3. State            — shared mutable state (proxy toggle, worker URL)
+ *   4. Navigation       — section switching + logo click
  *   5. Search           — game filter
- *   6. Fetch Helpers    — smartFetch (direct) + base injection
- *   7. Open Game        — opens game via fetch in new tab
- *   8. HTML Executor    — run typed / uploaded HTML
- *   9. Request Form     — POSTs to /api/request → Discord webhook
+ *   6. Proxy Toggle     — header on/off switch
+ *   7. Fetch Helpers    — smartFetch + HTML rewriting via proxy worker
+ *   8. Open Game        — opens games in new tab, routed through proxy
+ *   9. HTML Executor    — run typed / uploaded HTML
+ *  10. Request Form     — POSTs to /api/request → Discord webhook
  */
 
 (function () {
@@ -1900,7 +1905,12 @@ footer {
   /* ═══════════════════════════════════════════════════════════════
      3. STATE
   ═══════════════════════════════════════════════════════════════ */
-  const state = {};
+  const DEFAULT_WORKER = 'https://red-portal-service.koyeb.app/proxy';
+
+  const state = {
+    proxyOn:   true,
+    workerUrl: store.get('rp_worker_url') || DEFAULT_WORKER,
+  };
 
   // Flag body so CSS can show JS-controlled section behaviour
   document.body.classList.add('js');
@@ -1913,12 +1923,12 @@ footer {
   const $searchBarWrap = document.getElementById('search-bar-wrap');
 
   // Cache these NodeLists once — avoids a full DOM walk on every nav click
-  const _allSections   = [...document.querySelectorAll('.section')];
-  const _allSpNavBtns  = [...document.querySelectorAll('.sp-nav-btn')];
+  const _allSections = [...document.querySelectorAll('.section')];
+  const _allNavLinks = [...document.querySelectorAll('nav a')];
 
-  function showSection(id, activeBtn) {
+  function showSection(id, activeLink) {
     _allSections.forEach(s => s.classList.remove('active', 'section-enter'));
-    _allSpNavBtns.forEach(btn => btn.classList.remove('active'));
+    _allNavLinks.forEach(a => a.classList.remove('active'));
 
     const target = document.getElementById(id);
     if (!target) return;
@@ -1927,20 +1937,26 @@ footer {
     // rAF ensures class is visible before adding animation class
     requestAnimationFrame(() => target.classList.add('section-enter'));
 
-    if (activeBtn) activeBtn.classList.add('active');
+    if (activeLink) activeLink.classList.add('active');
 
     staggerCards(target);
 
     $searchBarWrap.classList.toggle('visible', SEARCH_SECTIONS.has(id));
   }
 
-  // Wire up side panel nav buttons
-  _allSpNavBtns.forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      showSection(btn.dataset.section, btn);
-      closeSidePanel(); // auto-close panel after navigating
-    });
+  // Delegate all nav clicks to the parent element (one listener)
+  document.getElementById('mainNav').addEventListener('click', e => {
+    const link = e.target.closest('a[data-section]');
+    if (!link) return;
+    e.preventDefault();
+    showSection(link.dataset.section, link);
+  });
+
+  // Logo click → always jump to Games and activate its nav link
+  document.querySelector('a.logo[data-section]').addEventListener('click', e => {
+    e.preventDefault();
+    const gamesLink = _allNavLinks.find(a => a.dataset.section === 'games') || null;
+    showSection('games', gamesLink);
   });
 
   /** Replay card reveal animations with per-card stagger delay.
@@ -1981,39 +1997,149 @@ footer {
   });
 
 
+
   /* ═══════════════════════════════════════════════════════════════
-     6. FETCH HELPERS
+     6. PROXY TOGGLE
+  ═══════════════════════════════════════════════════════════════ */
+  const $corsWidget = document.getElementById('corsWidget');
+
+  function refreshProxyUI() {
+    $corsWidget.classList.toggle('on', state.proxyOn);
+    $corsWidget.setAttribute('aria-pressed', String(state.proxyOn));
+  }
+
+  $corsWidget.addEventListener('click', () => {
+    state.proxyOn = !state.proxyOn;
+    refreshProxyUI();
+  });
+
+  $corsWidget.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      state.proxyOn = !state.proxyOn;
+      refreshProxyUI();
+    }
+  });
+
+  refreshProxyUI();
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     7. FETCH HELPERS
   ═══════════════════════════════════════════════════════════════ */
 
-  /** Inject a <base> tag so relative URLs in fetched page resolve correctly. */
+  /** Inject a <base> tag so relative URLs in the proxied page resolve correctly. */
   function injectBase(html, url) {
     const base = url.replace(/\/?$/, '/');
     return html.replace(/<head[^>]*>/i, m => `${m}<base href="${base}">`);
   }
 
   /**
-   * Fetch a URL directly (no proxy).
+   * Fetch a URL, optionally routing through the proxy worker.
    * Returns { html, finalUrl }.
    */
   async function smartFetch(url) {
-    const res = await fetch(url);
+    const fetchUrl = state.proxyOn
+      ? state.workerUrl.replace(/\/$/, '') + '?url=' + encodeURIComponent(url)
+      : url;
+    const res = await fetch(fetchUrl);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return { html: await res.text(), finalUrl: url };
   }
 
+  /**
+   * Rewrite proxied HTML so all sub-resources and navigations go through
+   * the worker, and inject a shim script to intercept fetch/XHR/navigation.
+   */
+  function rewriteForProxy(html, baseUrl) {
+    const w   = state.workerUrl.replace(/\/$/, '');
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    function abs(v) {
+      if (!v) return null;
+      if (/^(data:|blob:|javascript:|#|mailto:|tel:)/.test(v.trim())) return null;
+      try { return new URL(v.trim(), baseUrl).href; } catch { return null; }
+    }
+
+    doc.querySelectorAll('img[src],video[src],audio[src],source[src],track[src]').forEach(el => {
+      const a = abs(el.getAttribute('src'));
+      if (a) el.setAttribute('src', `${w}?url=${encodeURIComponent(a)}`);
+    });
+    doc.querySelectorAll('script[src]').forEach(el => {
+      const a = abs(el.getAttribute('src'));
+      if (a) el.setAttribute('src', `${w}?url=${encodeURIComponent(a)}`);
+    });
+    doc.querySelectorAll('link[href]').forEach(el => {
+      const a = abs(el.getAttribute('href'));
+      if (a) el.setAttribute('href', `${w}?url=${encodeURIComponent(a)}`);
+    });
+    doc.querySelectorAll('[srcset]').forEach(el => {
+      const rewritten = el.getAttribute('srcset').split(',').map(part => {
+        const [u, ...desc] = part.trim().split(/\s+/);
+        const a = abs(u);
+        return a ? [`${w}?url=${encodeURIComponent(a)}`, ...desc].join(' ') : part;
+      }).join(', ');
+      el.setAttribute('srcset', rewritten);
+    });
+    doc.querySelectorAll('a[href]').forEach(el => {
+      const a = abs(el.getAttribute('href'));
+      if (!a) return;
+      el.setAttribute('data-pnav', a);
+    });
+    doc.querySelectorAll('form').forEach(el => {
+      const raw = el.getAttribute('action') || baseUrl;
+      const a   = abs(raw) || baseUrl;
+      el.setAttribute('data-pform', a);
+    });
+
+    const shim = doc.createElement('script');
+    shim.textContent = `(function(){
+  var W    = ${JSON.stringify(w)};
+  var BASE = ${JSON.stringify(baseUrl)};
+  var _baseU = new URL(BASE);
+
+  function px(u) {
+    if (!u || typeof u !== 'string') return u;
+    u = u.trim();
+    if (/^(data:|blob:|javascript:|#|mailto:|tel:)/.test(u)) return u;
+    try {
+      var abs = new URL(u, BASE).href;
+      if (abs.startsWith(W)) return abs;
+      return W + '?url=' + encodeURIComponent(abs);
+    } catch(e) { return u; }
+  }
+
+  var _fetch = window.fetch;
+  window.fetch = function(resource, opts) {
+    if (typeof resource === 'string') resource = px(resource);
+    return _fetch.call(window, resource, opts);
+  };
+
+  var _xhrOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    var rest = Array.prototype.slice.call(arguments, 2);
+    return _xhrOpen.apply(this, [method, px(url)].concat(rest));
+  };
+
+  document.addEventListener('click', function(e) {
+    var el = e.target.closest('a[data-pnav]');
+    if (!el) return;
+    var href = el.getAttribute('data-pnav');
+    if (!href || href.startsWith('#')) return;
+    e.preventDefault();
+    window.parent.postMessage({type:'rpNav', url: href}, '*');
+  }, true);
+})();`;
+
+    const head = doc.head || doc.documentElement;
+    head.insertBefore(shim, head.firstChild);
+    return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  }
+
 
   /* ═══════════════════════════════════════════════════════════════
-     7. OPEN GAME (new tab via fetch)
+     8. OPEN GAME (new tab via proxy)
   ═══════════════════════════════════════════════════════════════ */
-
-  /** Resolve raw address bar input → absolute URL or Startpage search. */
-  function resolveInput(raw) {
-    const s = raw.trim();
-    if (!s) return null;
-    if (/^https?:\/\//i.test(s)) return s;
-    if (!s.includes(' ') && /\.\w{2,}/.test(s)) return 'https://' + s;
-    return 'https://www.startpage.com/do/dsearch?query=' + encodeURIComponent(s);
-  } // Determines if input is empty, a URL, or a search query.
 
   /**
    * Trigger a new-tab navigation using a programmatic <a> click.
@@ -2030,8 +2156,8 @@ footer {
   }
 
   /**
-   * Open a game URL in a new tab using direct fetch.
-   * Injects a base tag so relative paths resolve correctly.
+   * Open a game URL in a new tab, routing HTML through the proxy
+   * and injecting a base tag so relative paths resolve correctly.
    */
   function openGame(url) {
     if (!url) return;
@@ -2044,7 +2170,9 @@ footer {
         triggerOpen(blobUrl);
       })
       .catch(e => {
-        console.error('Fetch failed:', e.message);
+        // Proxy failed — open the game URL directly as a fallback
+        console.warn('Proxy fetch failed, opening directly:', e.message);
+        triggerOpen(url);
       });
   }
 
@@ -2062,7 +2190,7 @@ footer {
 
 
   /* ═══════════════════════════════════════════════════════════════
-     8. HTML EXECUTOR
+     9. HTML EXECUTOR
   ═══════════════════════════════════════════════════════════════ */
   document.getElementById('btnRunHtml').addEventListener('click', () => {
     const html = document.getElementById('htmlInput').value;
@@ -2087,7 +2215,7 @@ footer {
 
 
   /* ═══════════════════════════════════════════════════════════════
-     9. REQUEST FORM — POSTs to /api/request → Discord webhook
+     10. REQUEST FORM — POSTs to /api/request → Discord webhook
   ═══════════════════════════════════════════════════════════════ */
   const $btnSubmit = document.getElementById('btnSubmitRequest');
   const $reqName   = document.getElementById('reqName');
@@ -2173,8 +2301,8 @@ footer {
     if (!el) return;
     el.textContent = msg;
     el.className   = 'status' + (type ? ' ' + type : '');
-    // Auto-clear non-browser status messages after 3.5 s
-    if (msg && id !== 'browserStatus') {
+    // Auto-clear after 3.5 s
+    if (msg) {
       setTimeout(() => {
         el.textContent = '';
         el.className   = 'status';
