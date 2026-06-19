@@ -1801,25 +1801,9 @@ footer {
     <div class="section-inner">
       <h2>🎬 Tutorials</h2>
       <div class="card">
-        <div class="tutorials-grid" id="tutorialsGrid">
-          <div class="tutorial-card" data-tutorial="bookmark">
-            <div class="tutorial-frame">
-              <video class="tutorial-video" preload="metadata" playsinline>
-                <source src="https://red-portal-dkr-lcl.onrender.com/assets/tutorials/bookmark.mp4" type="video/mp4">
-              </video>
-              <button class="tutorial-play-btn" type="button" aria-label="Play video">
-                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 1.5v13l12-6.5-12-6.5z"/></svg>
-              </button>
-              <button class="tutorial-fullscreen-btn" type="button" aria-label="Fullscreen">
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M1 5V1h4M11 1h4v4M15 11v4h-4M5 15H1v-4"/>
-                </svg>
-                Fullscreen
-              </button>
-            </div>
-            <div class="tutorial-title">Bookmark</div>
-          </div>
-        </div>
+        <!-- Cards are generated from the TUTORIALS array in the script below.
+             To add a new tutorial, edit that array — no HTML editing needed. -->
+        <div class="tutorials-grid" id="tutorialsGrid"></div>
       </div>
     </div>
   </section>
@@ -2623,8 +2607,50 @@ footer {
 
 
   /* ═══════════════════════════════════════════════════════════════
+     TUTORIALS CONFIG
+     To add a new tutorial:
+       1. Upload the .mp4 to assets/tutorials/ in the onrender repo
+       2. Add a { id, title, file } entry below
+     The card is generated automatically — no HTML editing needed.
+  ═══════════════════════════════════════════════════════════════ */
+  const TUTORIALS_BASE = 'https://red-portal-dkr-lcl.onrender.com/assets/tutorials/';
+
+  const TUTORIALS = [
+    { id: 'bookmark', title: 'Bookmark', file: 'bookmark.mp4' },
+    { id: 'emulator', title: 'Emulator', file: 'emulator.mp4' },
+    /* ── Add more tutorials below ────────────────────────────────
+    { id: 'example', title: 'Example Title', file: 'example.mp4' },
+    ─────────────────────────────────────────────────────────── */
+  ];
+  /* END TUTORIALS CONFIG ══════════════════════════════════════════ */
+
+
+  /* ═══════════════════════════════════════════════════════════════
      TUTORIALS  (click-to-play video boxes + fullscreen button)
   ═══════════════════════════════════════════════════════════════ */
+  const $tutorialsGrid = document.getElementById('tutorialsGrid');
+  if ($tutorialsGrid) {
+    $tutorialsGrid.innerHTML = TUTORIALS.map(t => `
+      <div class="tutorial-card" data-tutorial="${t.id}">
+        <div class="tutorial-frame">
+          <video class="tutorial-video" preload="metadata" playsinline>
+            <source src="${TUTORIALS_BASE}${t.file}" type="video/mp4">
+          </video>
+          <button class="tutorial-play-btn" type="button" aria-label="Play video">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 1.5v13l12-6.5-12-6.5z"/></svg>
+          </button>
+          <button class="tutorial-fullscreen-btn" type="button" aria-label="Fullscreen">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M1 5V1h4M11 1h4v4M15 11v4h-4M5 15H1v-4"/>
+            </svg>
+            Fullscreen
+          </button>
+        </div>
+        <div class="tutorial-title">${t.title}</div>
+      </div>
+    `).join('');
+  }
+
   const _tutorialCards = [...document.querySelectorAll('.tutorial-card')];
 
   _tutorialCards.forEach(card => {
