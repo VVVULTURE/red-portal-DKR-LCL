@@ -1,64 +1,161 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Red Portal Launcher</title>
-    <style>
-      body { background: #0e1018; color: white; font-family: sans-serif; margin: 0; }
-      #launcher { text-align: center; border: 2px solid rgba(255,38,38,0.4); padding: 60px; border-radius: 12px; background: rgba(255,255,255,0.05) }
-      h1 { margin-bottom: 1rem; letter-spacing: -1px }
-      span { color: #ff3b30 }
-      button { padding: 14px 48px; font-size: 1.2rem; border: none; background: #dc2626; color: white; cursor: pointer; transition: transform 0.2s ease; position: relative }
-      button:hover { transform: scale(1.05) }
-      #status { margin-top: 20px; color: rgba(255,255,255,0.6); min-height: 1.5em; font-size: 0.9rem }
+<head>
+  <meta charset="UTF-8">
+  <title>Red Portal | File Edition</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      background: #0a0a0a;
+      color: #ff3c3c;
+      font-family: 'Courier New', Courier, monospace;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      text-transform: uppercase;
+    }
 
-    iframe { border: none; width: 100%; height: 80vh; display: block; margin-top: 32px }
+    .launcher-container {
+      border: 2px solid #ff3c3c;
+      padding: 4rem 6rem;
+      background: #1a1a1a;
+      box-shadow: 0 0 20px rgba(255, 60, 60, 0.3);
+    }
+
+    h1 { font-size: 3rem; margin: 0; letter-spacing: 4px; }
+    h2 { font-size: 1.5rem; color: #888; margin: 0 0 4rem 0; opacity: 0.7; letter-spacing: 2px; }
+
+    .launcher-input {
+      font-family: inherit;
+      padding: 0.8rem 1.5rem;
+      border: none;
+      background: #1a1a1a;
+      border: 1px solid #444;
+      color: #ff3c3c;
+      margin-right: 10px;
+    }
+
+    .launcher-btn {
+      font-size: 1rem;
+      padding: 0.8rem 2rem;
+      background: #ff3c3c;
+      color: black;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    #launcher-message { color: white; margin-left: 15px; font-size: 0.9rem; }
   </style>
 </head>
-<body id="wrapper">
-  <div class="launcher" id="starter">
-    <h1>Red Portal Launcher</h1>
-    <button onclick="launch()">Launch Portal</button>
-    <p id="status"></p>
+<body>
+  <div class="launcher-container">
+    <h1>Red Portal</h1>
+    <h2>File Edition</h2>
+    <form onsubmit="handleLauncherSubmit(event)">
+      <button class="launcher-btn" type="submit">INITIALIZE</button>
+      <span id="launcher-message"></span>
+    </form>
   </div>
 
-  <iframe id="portal-frame" src="about:blank" style="display:none"></iframe>
-
   <script>
-    const PORTAL_BASE = 'https://red-portal-service.koyeb.app/';
+    const TARGET_URL = "https://redportal.dpdns.org/";
+    const ASSETS_TO_INLINE = [
+      "assets/logo/logo.png", "assets/intro/Red-Intro.gif", "assets/themes/Default.PNG",
+      "assets/themes/The_Portal_Wallpaper_Not_Merged.png", "assets/themes/rain.gif",
+      "assets/themes/summer.png", "assets/themes/A_Safe_Landing.jpeg", "assets/themes/car.gif",
+      "assets/themes/wii-donut.gif", "assets/themes/circles.gif", "assets/themes/aspin.jpg",
+      "assets/themes/Cracked.png", "assets/HELP_BRING_BACK.png",
+    ];
 
-    function launch() {
-      const btn = document.getElementById("launchBtn");
-      const status = document.getElementById("status");
-      const starter = document.getElementById("starter");
-      const frame = document.getElementById("portal-frame");
+    async function fetchAsDataUri(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Asset fetch failed (${res.status}): ${url}`);
+      const blob = await res.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("FileReader failed for: " + url));
+        reader.readAsDataURL(blob);
+      });
+    }
 
-      btn.disabled = true;
-      status.innerHTML = "Preparing the portal...";
+    function escapeRegExp(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-      fetch(PORTAL_BASE)
-        .then((response) => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.text();
-        })
-        .then((html) => {
-          // Fix relative paths by injecting the base tag into the fetched HTML
-          const fixedHtml = html.replace(/<head[^>]*>/i, m => `${m}<base href="${PORTAL_BASE}">`);
+    function inlineAsset(html, assetPath, dataUri) {
+      const cleanBase = TARGET_URL.replace(/\/$/, "");
+      const escapedPath = escapeRegExp(assetPath);
+      const escapedFull = escapeRegExp(cleanBase + "/" + assetPath);
+      html = html.replace(new RegExp(`src="${escapedPath}"`, 'g'), `src="${dataUri}"`);
+      html = html.replace(new RegExp(`src="/${escapedPath}"`, 'g'), `src="${dataUri}"`);
+      html = html.replace(new RegExp(`src="${escapedFull}"`, 'g'), `src="${dataUri}"`);
+      html = html.replace(new RegExp(`'${assetPath}'`, 'g'), `'${dataUri}'`);
+      html = html.replace(new RegExp(`"${assetPath}"`, 'g'), `"${dataUri}"`);
+      return html;
+    }
 
-          const blobUrl = URL.createObjectURL(new Blob([fixedHtml], { type: 'text/html' }));
-          frame.src = blobUrl;
-          starter.style.display = "none";
-          status.innerHTML = " Portal loaded below.";
-        })
-        .catch((err) => {
-          console.error(err);
-          window.open(PORTAL_BASE, '_blank');
-          btn.disabled = false;
-          status.innerText = " Could not load inline - opening full site instead.";
-        });
+    function makeSelfContained(html, baseUrl, inlinedAssets) {
+      const cleanBaseUrl = baseUrl.replace(/\/$/, "");
+      const escapedUrl = escapeRegExp(cleanBaseUrl);
+      for (const [assetPath, dataUri] of Object.entries(inlinedAssets)) { html = inlineAsset(html, assetPath, dataUri); }
+      html = html.replace(/<head[^>]*>/i, match => `${match}<base href="${cleanBaseUrl}/">`);
+      const hrefRegex = new RegExp(`href="${escapedUrl}(\\/[^"]*)"`, 'g');
+      html = html.replace(hrefRegex, 'href="$1"');
+      const actionRegex = new RegExp(`action="${escapedUrl}(\\/[^"]*)"`, 'g');
+      html = html.replace(actionRegex, 'action="$1"');
 
-      btn.disabled = false;
+      const closeTag = "<" + "/script>";
+      const sandboxScript = `<script>
+        const INJECTED_URL = "${cleanBaseUrl}";
+        window.open = function(url, target) {
+          if (url && url.startsWith(INJECTED_URL)) return location.href = url.replace(INJECTED_URL, '');
+          return window.__realOpen || window.open)(url, target);
+        };
+        let realAssign = window.location.assign;
+        window.location.assign = function(url) {
+          if (url && url.startsWith(INJECTED_URL + '/')) return location.href = url.replace(INJECTED_URL + '/', '');
+          realAssign.call(window.location, url);
+        };
+      ${closeTag}`;
+
+      const lastBodyIdx = html.lastIndexOf('</body>');
+      if (lastBodyIdx !== -1) {
+        html = html.slice(0, lastBodyIdx) + sandboxScript + '</body>' + html.slice(lastBodyIdx + 7);
+      } else if ((lastHtmlIdx = html.lastIndexOf('</html>')) !== -1) {
+        html = html.slice(0, lastHtmlIdx) + sandboxScript + '</html>' + html.slice(lastHtmlIdx + 7);
+      } else {
+        html += sandboxScript;
+      }
+      return html;
+    }
+
+    async function handleLauncherSubmit(e) {
+      e.preventDefault();
+      const msg = document.getElementById('launcher-message');
+      msg.textContent = "INITIALIZING...";
+      try {
+        const baseUrl = TARGET_URL.replace(/\/$/, "");
+        const fetchUrl = baseUrl + '/';
+        const win = window.open('about:blank');
+        if (!win) msg.textContent = "POPUP BLOCKED";
+
+        const [htmlRes, ...assetResults] = await Promise.all([
+          fetch(fetchUrl).then(res => { if (!res.ok) throw new Error('Fetch failed.'); return res.text(); }),
+          ...ASSETS_TO_INLINE.map(assetPath => fetchAsDataUri(`${baseUrl}/${assetPath}`).then(dataUri => ({ assetPath, dataUri })))
+        ]);
+
+        const inlinedAssets = {};
+        for (const result of assetResults) if (result.dataUri) inlinedAssets[result.assetPath] = result.dataUri;
+        win.location = URL.createObjectURL(new Blob([makeSelfContained(htmlRes, TARGET_URL, inlinedAssets)], { type: "text/html" }));
+        msg.textContent = "";
+      } catch (err) {
+        if (win) win.document.open();
+        win.document.write(`<h1>ERROR</h1><pre>${err.message}</pre>`);
+        win.document.close();
+        msg.textContent = err.message;
+      }
     }
   </script>
 </body>
-</html>
