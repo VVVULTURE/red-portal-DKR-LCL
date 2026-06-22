@@ -1,59 +1,64 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Red Portal Launcher</title>
-  <style>
-    body { background: #0e1018; color: white; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .launcher { text-align: center; border: 1px solid rgba(255,38,38,0.4); padding: 60px; border-radius: 12px; background: rgba(255,255,255,0.05); }
-    h1 { margin-bottom: 1rem; letter-spacing: -1px; }
-    span { color: #ff3b30; }
-    button { padding: 14px 48px; font-size: 1.2rem; border: none; background: #dc2626; color: white; cursor: pointer; transition: transform 0.2s ease; position: relative; }
-    button:hover { transform: scale(1.05); }
-    button::after { content: "→"; margin-left: 8px; font-size: 1.4rem; opacity: 0.7; }
-    #status { margin-top: 20px; color: #ffa3a3; min-height: 1.5em; font-size: 0.9rem; }
+  <head>
+    <meta charset="UTF-8" />
+    <title>Red Portal Launcher</title>
+    <style>
+      body { background: #0e1018; color: white; font-family: sans-serif; margin: 0; }
+      #launcher { text-align: center; border: 2px solid rgba(255,38,38,0.4); padding: 60px; border-radius: 12px; background: rgba(255,255,255,0.05) }
+      h1 { margin-bottom: 1rem; letter-spacing: -1px }
+      span { color: #ff3b30 }
+      button { padding: 14px 48px; font-size: 1.2rem; border: none; background: #dc2626; color: white; cursor: pointer; transition: transform 0.2s ease; position: relative }
+      button:hover { transform: scale(1.05) }
+      #status { margin-top: 20px; color: rgba(255,255,255,0.6); min-height: 1.5em; font-size: 0.9rem }
+
+    iframe { border: none; width: 100%; height: 80vh; display: block; margin-top: 32px }
   </style>
 </head>
-<body>
+<body id="wrapper">
+  <div class="launcher" id="starter">
+    <h1>Red Portal Launcher</h1>
+    <button onclick="launch()">Launch Portal</button>
+    <p id="status"></p>
+  </div>
 
-<div class="launcher">
-  <h1>Red Portal Launcher</h1>
-  <button id="launchBtn" onclick="launch()">Launch Portal</button>
-  <div id="status"></div>
-</div>
+  <iframe id="portal-frame" src="about:blank" style="display:none"></iframe>
 
-<script>
-async function launch() {
-  const btn = document.getElementById("launchBtn");
-  const status = document.getElementById("status");
+  <script>
+    const PORTAL_BASE = 'https://red-portal-service.koyeb.app/';
 
-  btn.disabled = true;
-  status.innerText = "Preparing portal...";
+    function launch() {
+      const btn = document.getElementById("launchBtn");
+      const status = document.getElementById("status");
+      const starter = document.getElementById("starter");
+      const frame = document.getElementById("portal-frame");
 
-  try {
-    // Fetch the actual Red Portal index from its remote home — this avoids a broken offline-only clone
-    const response = await fetch('https://red-portal-service.koyeb.app/');
-    if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
-    let html = await response.text();
+      btn.disabled = true;
+      status.innerHTML = "Preparing the portal...";
 
-    // Fix the base URL so relative paths (css/js/images) still resolve against the real site, not your local drive
-    const baseUrl = "https://red-portal-service.koyeb.app/";
-    html = html.replace(/<head[^>]*>/i, m => `${m}<base href="${baseUrl}">`);
+      fetch(PORTAL_BASE)
+        .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.text();
+        })
+        .then((html) => {
+          // Fix relative paths by injecting the base tag into the fetched HTML
+          const fixedHtml = html.replace(/<head[^>]*>/i, m => `${m}<base href="${PORTAL_BASE}">`);
 
-    // Wrap in a blob — this allows the browser to open it from a file:/// URI without cross-origin navigation blocks
-    const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-    window.open(blobUrl, '_blank');
+          const blobUrl = URL.createObjectURL(new Blob([fixedHtml], { type: 'text/html' }));
+          frame.src = blobUrl;
+          starter.style.display = "none";
+          status.innerHTML = " Portal loaded below.";
+        })
+        .catch((err) => {
+          console.error(err);
+          window.open(PORTAL_BASE, '_blank');
+          btn.disabled = false;
+          status.innerText = " Could not load inline - opening full site instead.";
+        });
 
-    status.innerText = " Portal launched in new tab ✓";
-  } catch (err) {
-    // Fallback if anything fails — still get the user into the portal one way or another
-    console.warn("Fallback launch", err);
-    window.open('https://red-portal-service.koyeb.app/', '_blank');
-    status.innerText = " Launching fallback tab...";
-  } finally {
-    btn.disabled = false;
-  }
-}</script>
-
+      btn.disabled = false;
+    }
+  </script>
 </body>
 </html>
