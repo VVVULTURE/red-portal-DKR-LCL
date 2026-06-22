@@ -2,70 +2,58 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Red Portal</title>
+  <title>Red Portal Launcher</title>
   <style>
-    :root {
-      --accent: #FF2020; --border: rgba(255,32,32,0.16); --bg: #0a0a10; --text: #e4e4f0; --glow-sm: 0 0 8px rgba(255,32,32,0.38);
-      --gold-accent: rgb(220,38,38); --trump-bg: #0e1018;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); font-family: 'Exo 2', sans-serif; min-height: 100vh; overflow-x: hidden; position: relative;}
-
-    /* LAUNCHER UI */
-    .launcher-overlay { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center; background: var(--bg); }
-    .logo-ring { width:110px; height:110px; border-radius:50%; border:2px solid rgba(220,38,38,0.35); position:relative;}
-    .logo-inner { width:72px; height:72px; border-radius:50%; background:rgba(220,38,38,0.12); border:1.5px solid rgba(220,38,38,0.4);}
-    .logo-icon { font-size:2rem; color:#f87171; line-height:1; letter-spacing:-1px; font-weight:700;}
-    .title-main { font-size:2.4rem; font-weight:700; color:#fff;} .title-main span{color:#f87171}
-
-    /* PORTAL UI */
-    header { position:sticky; top:0; height:72px; padding:0 32px; display:flex; align-items:center; background:rgba(10,10,16,.8); border-bottom:1px solid var(--border); z-index:900;}
-    nav a { color:#e4e4f0cc; font-weight:bold; padding:8px 12px; text-decoration:none; margin-right:8px;}
-
-    main { max-width:1160px; margin:auto; padding:50px 32px;}
-    .section{display:none} .active{display:block}
-    .game-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:16px;}
-    .card{background:#1e1e28; border:1px solid var(--border); padding:30px; margin-bottom:30px; border-radius:12px}
-
+    body { background: #0e1018; color: white; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .launcher { text-align: center; border: 1px solid rgba(255,38,38,0.4); padding: 60px; border-radius: 12px; background: rgba(255,255,255,0.05); }
+    h1 { margin-bottom: 1rem; letter-spacing: -1px; }
+    span { color: #ff3b30; }
+    button { padding: 14px 48px; font-size: 1.2rem; border: none; background: #dc2626; color: white; cursor: pointer; transition: transform 0.2s ease; position: relative; }
+    button:hover { transform: scale(1.05); }
+    button::after { content: "→"; margin-left: 8px; font-size: 1.4rem; opacity: 0.7; }
+    #status { margin-top: 20px; color: #ffa3a3; min-height: 1.5em; font-size: 0.9rem; }
   </style>
 </head>
 <body>
-<div id="launcher" class="launcher-overlay">
-  <div class="logo-ring"><div class="logo-inner"><span class="logo-icon">R</span></div></div>
-  <h1 class="title-main"><span>Red</span> Portal</h1>
-  <button onclick="launchPortal()" style="padding:12px 36px; background:#dc2626; border:none; color:white; cursor:pointer;">Launch Portal</button>
+
+<div class="launcher">
+  <h1>Red Portal Launcher</h1>
+  <button id="launchBtn" onclick="launch()">Launch Portal</button>
+  <div id="status"></div>
 </div>
 
-<!-- FULL PORTAL CONTENT -->
-<header>
-  <nav id="mainNav">
-    <a href="#games" data-section="games">Games</a>
-    <a href="#form" data-section="form">Requests</a>
-    <a href="#executor" data-section="executor">Executor</a>
-    <a href="#links" data-section="links">Links</a>
-</header>
-
-<main id="content"></main>
-
 <script>
-const THEMES = [{id:'default',name:'Default'},{id:'Red Portal',color:'#FF2020'}]; // Reduced list for single file; expand as needed.
- let launcherActive=true, activeSection='games';
+async function launch() {
+  const btn = document.getElementById("launchBtn");
+  const status = document.getElementById("status");
 
- function setStatus(i,m,t){let e=document.getElementById(i); if(e){e.textContent=m} }
+  btn.disabled = true;
+  status.innerText = "Preparing portal...";
 
- async function launchPortal() {
-   const target = 'https://red-portal-service.koyeb.app/';
-   try {
-     const res = await fetch(target + '/');
-     const html = await res.text();
-     const blobUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-     window.open(blobUrl, "_blank");
-     document.getElementById('launcher').style.display='none'; // Hide launcher after launch if successful
-   } catch (e) {}
- }
+  try {
+    // Fetch the actual Red Portal index from its remote home — this avoids a broken offline-only clone
+    const response = await fetch('https://red-portal-service.koyeb.app/');
+    if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
+    let html = await response.text();
 
- document.querySelectorAll('.section').forEach((s)=>{}); 
-</script>
+    // Fix the base URL so relative paths (css/js/images) still resolve against the real site, not your local drive
+    const baseUrl = "https://red-portal-service.koyeb.app/";
+    html = html.replace(/<head[^>]*>/i, m => `${m}<base href="${baseUrl}">`);
+
+    // Wrap in a blob — this allows the browser to open it from a file:/// URI without cross-origin navigation blocks
+    const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    window.open(blobUrl, '_blank');
+
+    status.innerText = " Portal launched in new tab ✓";
+  } catch (err) {
+    // Fallback if anything fails — still get the user into the portal one way or another
+    console.warn("Fallback launch", err);
+    window.open('https://red-portal-service.koyeb.app/', '_blank');
+    status.innerText = " Launching fallback tab...";
+  } finally {
+    btn.disabled = false;
+  }
+}</script>
+
 </body>
 </html>
