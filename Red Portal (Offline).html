@@ -1,394 +1,71 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Red Portal</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      background: #0e1018;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: 'Nunito', 'Segoe UI', Arial, sans-serif;
-      overflow: hidden;
+    :root {
+      --accent: #FF2020; --border: rgba(255,32,32,0.16); --bg: #0a0a10; --text: #e4e4f0; --glow-sm: 0 0 8px rgba(255,32,32,0.38);
+      --gold-accent: rgb(220,38,38); --trump-bg: #0e1018;
     }
 
-    .bg-glow {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      background: radial-gradient(ellipse 60% 45% at 50% 60%, rgba(220, 38, 38, 0.13) 0%, transparent 70%);
-      z-index: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Exo 2', sans-serif; min-height: 100vh; overflow-x: hidden; position: relative;}
 
-    .particles {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 0;
-    }
+    /* LAUNCHER UI */
+    .launcher-overlay { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+    .logo-ring { width:110px; height:110px; border-radius:50%; border:2px solid rgba(220,38,38,0.35); position:relative;}
+    .logo-inner { width:72px; height:72px; border-radius:50%; background:rgba(220,38,38,0.12); border:1.5px solid rgba(220,38,38,0.4);}
+    .logo-icon { font-size:2rem; color:#f87171; line-height:1; letter-spacing:-1px; font-weight:700;}
+    .title-main { font-size:2.4rem; font-weight:700; color:#fff;} .title-main span{color:#f87171}
 
-    .center {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2.5rem;
-    }
+    /* PORTAL UI */
+    header { position:sticky; top:0; height:72px; padding:0 32px; display:flex; align-items:center; background:rgba(10,10,16,.8); border-bottom:1px solid var(--border); z-index:900;}
+    nav a { color:#e4e4f0cc; font-weight:bold; padding:8px 12px; text-decoration:none; margin-right:8px;}
 
-    .logo-ring {
-      width: 110px;
-      height: 110px;
-      border-radius: 50%;
-      border: 2px solid rgba(220,38,38,0.35);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-    }
-    .logo-ring::before {
-      content: '';
-      position: absolute;
-      inset: -6px;
-      border-radius: 50%;
-      border: 1px solid rgba(220,38,38,0.15);
-    }
-    .logo-ring::after {
-      content: '';
-      position: absolute;
-      inset: -14px;
-      border-radius: 50%;
-      border: 1px solid rgba(220,38,38,0.07);
-    }
-    .logo-inner {
-      width: 72px;
-      height: 72px;
-      border-radius: 50%;
-      background: rgba(220,38,38,0.12);
-      border: 1.5px solid rgba(220,38,38,0.4);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .logo-icon {
-      font-size: 2rem;
-      color: #f87171;
-      line-height: 1;
-      letter-spacing: -1px;
-      font-weight: 700;
-      font-family: monospace;
-      user-select: none;
-    }
+    main { max-width:1160px; margin:auto; padding:50px 32px;}
+    .section{display:none} .active{display:block}
+    .game-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:16px;}
+    .card{background:#1e1e28; border:1px solid var(--border); padding:30px; margin-bottom:30px; border-radius:12px}
 
-    .title-block {
-      text-align: center;
-    }
-    .title-main {
-      font-size: 2.4rem;
-      font-weight: 700;
-      color: #fff;
-      letter-spacing: -0.5px;
-      line-height: 1.1;
-    }
-    .title-main span {
-      color: #f87171;
-    }
-    .title-sub {
-      margin-top: 0.5rem;
-      font-size: 0.95rem;
-      color: rgba(255,255,255,0.38);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    .launch-btn {
-      position: relative;
-      padding: 1rem 3rem;
-      font-size: 1.1rem;
-      font-weight: 700;
-      font-family: inherit;
-      letter-spacing: 0.04em;
-      color: #fff;
-      background: #dc2626;
-      border: none;
-      border-radius: 50px;
-      cursor: pointer;
-      transition: background 0.18s, transform 0.14s;
-      outline: none;
-      overflow: hidden;
-    }
-    .launch-btn::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border-radius: inherit;
-      border: 1.5px solid rgba(255,255,255,0.18);
-      pointer-events: none;
-    }
-    .launch-btn:hover {
-      background: #b91c1c;
-      transform: scale(1.04);
-    }
-    .launch-btn:active {
-      transform: scale(0.97);
-      background: #991b1b;
-    }
-    .launch-btn:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .btn-inner {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .btn-arrow {
-      font-size: 1.2rem;
-      transition: transform 0.18s;
-    }
-    .launch-btn:hover .btn-arrow {
-      transform: translateX(4px);
-    }
-
-    .status {
-      font-size: 0.88rem;
-      color: rgba(255,255,255,0.4);
-      min-height: 1.2em;
-      text-align: center;
-      transition: color 0.2s;
-    }
-    .status.error { color: #f87171; }
-    .status.loading { color: rgba(255,255,255,0.6); }
   </style>
 </head>
 <body>
-  <div class="bg-glow"></div>
-  <canvas class="particles" id="pCanvas"></canvas>
+<div id="launcher" class="launcher-overlay">
+  <div class="logo-ring"><div class="logo-inner"><span class="logo-icon">R</span></div></div>
+  <h1 class="title-main"><span>Red</span> Portal</h1>
+  <button onclick="launchPortal()" style="padding:12px 36px; background:#dc2626; border:none; color:white; cursor:pointer;">Launch Portal</button>
+</div>
 
-  <div class="center">
-    <div class="logo-ring">
-      <div class="logo-inner">
-        <span class="logo-icon">R</span>
-      </div>
-    </div>
+<!-- FULL PORTAL CONTENT -->
+<header>
+  <nav id="mainNav">
+    <a href="#games" data-section="games">Games</a>
+    <a href="#form" data-section="form">Requests</a>
+    <a href="#executor" data-section="executor">Executor</a>
+    <a href="#links" data-section="links">Links</a>
+</header>
 
-    <div class="title-block">
-      <div class="title-main"><span>Red</span> Portal</div>
-      <div class="title-sub">File Edition</div>
-    </div>
+<main id="content"></main>
 
-    <button class="launch-btn" id="launchBtn" onclick="launchPortal()">
-      <span class="btn-inner">
-        Launch Portal
-        <span class="btn-arrow">→</span>
-      </span>
-    </button>
+<script>
+const THEMES = [{id:'default',name:'Default'},{id:'Red Portal',color:'#FF2020'}]; // Reduced list for single file; expand as needed.
+ let launcherActive=true, activeSection='games';
 
-    <div class="status" id="status"></div>
-  </div>
+ function setStatus(i,m,t){let e=document.getElementById(i); if(e){e.textContent=m} }
 
-  <script>
-    const TARGET_URL = "https://red-portal-service.koyeb.app/";
+ async function launchPortal() {
+   const target = 'https://red-portal-service.koyeb.app/';
+   try {
+     const res = await fetch(target + '/');
+     const html = await res.text();
+     const blobUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+     window.open(blobUrl, "_blank");
+     document.getElementById('launcher').style.display='none'; // Hide launcher after launch if successful
+   } catch (e) {}
+ }
 
-    const ASSETS_TO_INLINE = [
-      "assets/logo/logo.png",
-      "assets/intro/Red-Intro.gif",
-      "assets/themes/Default.PNG",
-      "assets/themes/rain.gif",
-      "assets/themes/summer.png",
-      "assets/themes/A_Safe_Landing.jpeg",
-      "assets/themes/car.gif",
-      "assets/themes/wii-donut.gif",
-      "assets/themes/circles.gif",
-      "assets/themes/aspin.jpg",
-    ];
-
-    function escapeRegExp(s) {
-      return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
-
-    async function fetchAsDataUri(url) {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Asset fetch failed (${res.status}): ${url}`);
-      const blob = await res.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error("FileReader failed: " + url));
-        reader.readAsDataURL(blob);
-      });
-    }
-
-    function inlineAsset(html, assetPath, dataUri) {
-      const cleanBase = TARGET_URL.replace(/\/$/, "");
-      const ep = escapeRegExp(assetPath);
-      const ef = escapeRegExp(cleanBase + "/" + assetPath);
-      html = html.replace(new RegExp(`src="${ep}"`, 'g'), `src="${dataUri}"`);
-      html = html.replace(new RegExp(`src="/${ep}"`, 'g'), `src="${dataUri}"`);
-      html = html.replace(new RegExp(`src="${ef}"`, 'g'), `src="${dataUri}"`);
-      html = html.replace(new RegExp(`'${ep}'`, 'g'), `'${dataUri}'`);
-      html = html.replace(new RegExp(`"${ep}"`, 'g'), `"${dataUri}"`);
-      return html;
-    }
-
-    function makeSelfContained(html, baseUrl, inlinedAssets) {
-      const cleanBaseUrl = baseUrl.replace(/\/$/, "");
-      const escapedUrl = escapeRegExp(cleanBaseUrl);
-
-      for (const [assetPath, dataUri] of Object.entries(inlinedAssets)) {
-        html = inlineAsset(html, assetPath, dataUri);
-      }
-
-      html = html.replace(/<head[^>]*>/i, m => `${m}<base href="${cleanBaseUrl}/">`);
-      html = html.replace(new RegExp(`href="${escapedUrl}(\\/[^"]*)"`, 'g'), 'href="$1"');
-      html = html.replace(new RegExp(`action="${escapedUrl}(\\/[^"]*)"`, 'g'), 'action="$1"');
-
-      const closeTag = "<" + "/script>";
-      const sandboxScript =
-        "<script>\n" +
-        `  const INJECTED_URL = "${cleanBaseUrl}";\n` +
-        "  window.open = function(url, target) {\n" +
-        "    if (url && url.startsWith(INJECTED_URL)) {\n" +
-        "      location.href = url.replace(INJECTED_URL, '');\n" +
-        "    } else {\n" +
-        "      window.__realOpen = window.__realOpen || window.open;\n" +
-        "      return window.__realOpen(url, target);\n" +
-        "    }\n" +
-        "  };\n" +
-        "  let realAssign = window.location.assign;\n" +
-        "  window.location.assign = function(url) {\n" +
-        "    if (url && url.startsWith(INJECTED_URL + '/')) {\n" +
-        "      location.href = url.replace(INJECTED_URL + '/', '');\n" +
-        "    } else {\n" +
-        "      realAssign.call(window.location, url);\n" +
-        "    }\n" +
-        "  };\n" +
-        closeTag;
-
-      const lastBodyIdx = html.lastIndexOf('</body>');
-      if (lastBodyIdx !== -1) {
-        html = html.slice(0, lastBodyIdx) + sandboxScript + '</body>' + html.slice(lastBodyIdx + 7);
-      } else {
-        const lastHtmlIdx = html.lastIndexOf('</html>');
-        if (lastHtmlIdx !== -1) {
-          html = html.slice(0, lastHtmlIdx) + sandboxScript + '</html>' + html.slice(lastHtmlIdx + 7);
-        } else {
-          html += sandboxScript;
-        }
-      }
-      return html;
-    }
-
-    async function launchPortal() {
-      const btn = document.getElementById('launchBtn');
-      const status = document.getElementById('status');
-
-      btn.disabled = true;
-      status.className = 'status loading';
-      status.textContent = 'Fetching portal…';
-
-      const baseUrl = TARGET_URL.replace(/\/$/, "");
-      
-      // Open a blank window synchronously to satisfy the popup blocker
-      const win = window.open('about:blank', '_blank');
-
-      if (!win) {
-        status.className = 'status error';
-        status.textContent = 'Popup blocked — please allow popups for this page.';
-        btn.disabled = false;
-        return;
-      }
-
-      try {
-        const [htmlRes, ...assetResults] = await Promise.all([
-          fetch(baseUrl + '/').then(r => {
-            if (!r.ok) throw new Error('Fetch failed: ' + r.status);
-            return r.text();
-          }),
-          ...ASSETS_TO_INLINE.map(p =>
-            fetchAsDataUri(`${baseUrl}/${p}`)
-              .then(dataUri => ({ assetPath: p, dataUri }))
-              .catch(() => ({ assetPath: p, dataUri: null }))
-          )
-        ]);
-
-        const inlinedAssets = {};
-        for (const r of assetResults) {
-          if (r.dataUri) inlinedAssets[r.assetPath] = r.dataUri;
-        }
-
-        const fixedHtml = makeSelfContained(htmlRes, TARGET_URL, inlinedAssets);
-        
-        // Package the fixed HTML code into a local application Blob object
-        const blob = new Blob([fixedHtml], { type: "text/html" });
-        const blobUrl = URL.createObjectURL(blob);
-        
-        // Point the pre-opened window directly to the newly compiled Blob URL
-        win.location.replace(blobUrl);
-        
-        status.textContent = '';
-        status.className = 'status';
-      } catch (err) {
-        win.document.open();
-        win.document.write('<h1>Failed to load portal.</h1><pre>' + err.message + '</pre>');
-        win.document.close();
-        status.className = 'status error';
-        status.textContent = 'Error: ' + err.message;
-      }
-
-      btn.disabled = false;
-    }
-
-    // Subtle floating particles
-    (function() {
-      const canvas = document.getElementById('pCanvas');
-      const ctx = canvas.getContext('2d');
-      let W, H, particles;
-
-      function resize() {
-        W = canvas.width = window.innerWidth;
-        H = canvas.height = window.innerHeight;
-      }
-
-      function init() {
-        resize();
-        particles = Array.from({ length: 38 }, () => ({
-          x: Math.random() * W,
-          y: Math.random() * H,
-          r: Math.random() * 1.5 + 0.5,
-          vx: (Math.random() - 0.5) * 0.25,
-          vy: -Math.random() * 0.3 - 0.1,
-          a: Math.random() * 0.4 + 0.1,
-        }));
-      }
-
-      function draw() {
-        ctx.clearRect(0, 0, W, H);
-        for (const p of particles) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(220,38,38,${p.a})`;
-          ctx.fill();
-          p.x += p.vx;
-          p.y += p.vy;
-          if (p.y < -4) { p.y = H + 4; p.x = Math.random() * W; }
-          if (p.x < -4) p.x = W + 4;
-          if (p.x > W + 4) p.x = -4;
-        }
-        requestAnimationFrame(draw);
-      }
-
-      window.addEventListener('resize', resize);
-      init();
-      draw();
-    })();
-  </script>
+ document.querySelectorAll('.section').forEach((s)=>{}); 
+</script>
 </body>
 </html>
