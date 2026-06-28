@@ -375,12 +375,14 @@ function serveStatic(req, res, filePath) {
 
 /* ── Main request router ───────────────────────────────────────── */
 const server = http.createServer((req, res) => {
-  const parsed   = url.parse(req.url, true);
-  const pathname = parsed.pathname;
-
-  /* ── OPTIONS preflight (CORS) ── */
+  // 1. Handle CORS Preflight Options immediately
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, CORS_HEADERS);
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*', // Or your specific Render URL
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-bot-secret',
+      'Access-Control-Max-Age': '86400'
+    });
     return res.end();
   }
 
