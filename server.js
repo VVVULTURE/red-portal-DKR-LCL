@@ -249,7 +249,7 @@ function forwardToBot(payload) {
     const isHttps = parsed.protocol === 'https:';
     const lib     = isHttps ? https : http;
 
-    const options = {
+const options = {
       hostname: parsed.hostname,
       port:     parsed.port || (isHttps ? 443 : 80),
       path:     parsed.pathname,
@@ -258,8 +258,8 @@ function forwardToBot(payload) {
       headers:  {
         'content-type':   'application/json',
         'content-length': Buffer.byteLength(body),
-        // Shared secret so the bot rejects requests from anything else
         'x-bot-secret':   BOT_SECRET,
+        'ngrok-skip-browser-warning': 'true' // <-- Add this line!
       },
     };
 
