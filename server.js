@@ -101,7 +101,6 @@ const CORS_HEADERS = Object.freeze({
   'x-frame-options':               'ALLOWALL',
   'content-security-policy':       '',
   'vary':                          'Origin',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-bot-secret',
 });
 
 /* ── Proxy a request to a remote URL ──────────────────────────── */
@@ -250,7 +249,7 @@ function forwardToBot(payload) {
     const isHttps = parsed.protocol === 'https:';
     const lib     = isHttps ? https : http;
 
-const options = {
+    const options = {
       hostname: parsed.hostname,
       port:     parsed.port || (isHttps ? 443 : 80),
       path:     parsed.pathname,
@@ -259,8 +258,8 @@ const options = {
       headers:  {
         'content-type':   'application/json',
         'content-length': Buffer.byteLength(body),
+        // Shared secret so the bot rejects requests from anything else
         'x-bot-secret':   BOT_SECRET,
-        'ngrok-skip-browser-warning': 'true' // <-- Add this line!
       },
     };
 
@@ -377,7 +376,7 @@ function serveStatic(req, res, filePath) {
 /* ── Main request router ───────────────────────────────────────── */
 const server = http.createServer((req, res) => {
   const parsed   = url.parse(req.url, true);
-  const pathname = parsed.pathname; // <-- Make sure this is exactly lowercase 'pathname'
+  const pathname = parsed.pathname;
 
   /* ── OPTIONS preflight (CORS) ── */
   if (req.method === 'OPTIONS') {
