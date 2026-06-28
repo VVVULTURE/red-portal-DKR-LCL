@@ -101,6 +101,7 @@ const CORS_HEADERS = Object.freeze({
   'x-frame-options':               'ALLOWALL',
   'content-security-policy':       '',
   'vary':                          'Origin',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-bot-secret',
 });
 
 /* ── Proxy a request to a remote URL ──────────────────────────── */
