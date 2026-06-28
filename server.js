@@ -19,7 +19,7 @@ const fs    = require('fs');
 const url   = require('url');
 
 /* ── Config ────────────────────────────────────────────────────── */
-const PORT       = parseInt(process.env.PORT || '3000', 10);
+const PORT       = parseInt(process.env.PORT || '3001', 10);
 const STATIC     = __dirname;           // serve files from the same folder as server.js
 const PROXY_MAX  = 50 * 1024 * 1024;   // abort proxy responses larger than 50 MB
 // URL of the bot's HTTP listener, e.g. http://192.168.1.50:3000/post-request
