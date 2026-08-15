@@ -1,0 +1,17 @@
+node_modules/
+
+# Games/Testing now live in Cloudflare R2 -- server.js redirects requests
+# there at runtime. Keep these folders locally for editing/re-syncing,
+# but they don't belong in git (this is the original 85GB problem).
+Games/
+Testing/
+
+# Local bookkeeping for sync_to_r2.py -- regenerable, not needed by
+# anyone else, and .sync_state.json alone can run tens of MB.
+.sync_state.json
+manifest.json
+skipped.log
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db

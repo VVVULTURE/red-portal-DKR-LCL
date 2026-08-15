@@ -1,0 +1,20 @@
+node_modules
+.git
+.gitignore
+*.md
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Games/Testing now live in Cloudflare R2 — never bundle them into the
+# Docker image. This is the actual fix for the deploy being huge/slow;
+# server.js redirects requests for these paths to R2 at runtime instead.
+Games
+Testing
+
+# Local sync-script bookkeeping — not needed at runtime, and the state
+# file specifically can get large (tens of MB) with no reason to ship it.
+.sync_state.json
+manifest.json
+skipped.log
+sync_to_r2.py

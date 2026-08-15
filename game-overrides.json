@@ -1,0 +1,50 @@
+{
+  "Agario": {
+    "name": "Agar.io"
+  },
+  "Animal-Crossing-DS": {
+    "name": "Animal Crossing (DS)"
+  },
+  "Animal-Crossing-GAMECUBE": {
+    "name": "Animal Crossing (GAMECUBE)"
+  },
+  "Baldis-Basics-Plus": {
+    "name": "Baldi's Basics Plus"
+  },
+  "Deltarune-Ch1": {
+    "name": "Deltarune Ch.1"
+  },
+  "Deltarune-Ch2": {
+    "name": "Deltarune Ch.2"
+  },
+  "Deltarune-Ch3": {
+    "name": "Deltarune Ch.3"
+  },
+  "Eaglercraft-112": {
+    "name": "Eaglercraft 1.12"
+  },
+  "Eaglercraft-18": {
+    "name": "Eaglercraft 1.8"
+  },
+  "FNF-Friday-Night-Funkin": {
+    "name": "FNF, Friday Night Funkin"
+  },
+  "Hollow-Knight-Silksong": {
+    "name": "Hollow Knight: Silksong"
+  },
+  "Plauge-Inc-Webport": {
+    "name": "Plauge Inc, Webport"
+  },
+  "Red-Proxy-Iframe": {
+    "name": "Red Proxy (Iframe)"
+  },
+  "Slowroadsio": {
+    "name": "Slowroads.io"
+  },
+  "SpongeBob-BFBB-GBA": {
+    "name": "SpongeBob BFBB (GBA)"
+  },
+  "Ultrakill-Webport": {
+    "name": "Ultrakill, Webport"
+  }
+}
