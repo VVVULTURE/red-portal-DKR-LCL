@@ -2103,17 +2103,27 @@ footer {
   /* ═══════════════════════════════════════════════════════════════
      5. SEARCH
   ═══════════════════════════════════════════════════════════════ */
-  // Build a lookup array once at startup — avoids re-querying the DOM and
-  // re-reading textContent on every keystroke (was an O(n) DOM walk each time).
-  const _searchCache = [...document.querySelectorAll('#gamesGrid .game-btn, #preLaunchGrid .game-btn')]
-    .map(btn => ({ el: btn, name: (btn.querySelector('span')?.textContent || '').toLowerCase() }));
-
-  document.getElementById('gameSearch').addEventListener('input', function () {
-    const q = this.value.toLowerCase().trim();
+  // Rebuildable lookup array -- NOT built once at startup anymore. The
+  // games/testing grids now populate asynchronously (see renderGameGrid
+  // below), which replaces the DOM nodes captured here; a one-time
+  // snapshot went stale the moment that happened, silently breaking
+  // search. rebuildSearchCache() gets called again after every dynamic
+  // grid update, and reapplies whatever's currently typed in the box.
+  let _searchCache = [];
+  function rebuildSearchCache() {
+    _searchCache = [...document.querySelectorAll('#gamesGrid .game-btn, #preLaunchGrid .game-btn')]
+      .map(btn => ({ el: btn, name: (btn.querySelector('span')?.textContent || '').toLowerCase() }));
+    applySearchFilter();
+  }
+  function applySearchFilter() {
+    const q = document.getElementById('gameSearch').value.toLowerCase().trim();
     _searchCache.forEach(({ el, name }) => {
       el.classList.toggle('hidden', !!q && !name.includes(q));
     });
-  });
+  }
+  rebuildSearchCache();
+
+  document.getElementById('gameSearch').addEventListener('input', applySearchFilter);
 
 
 
@@ -2136,44 +2146,71 @@ footer {
   }
 
   /**
-   * Open a game in a new tab as a LOCAL BLOB.
+   * Open a game in a new tab as a LOCAL BLOB. Every vendored game (same-origin
+   * path like Games/Balatro/index.html) is fetched and opened as a blob: URL —
+   * the new tab always shows blob:..., never the real R2/redirect URL.
    *
-   * For a vendored game (same-origin path like Games/Balatro/index.html) we
-   * fetch that local file, inject a <base> tag pointing at the game's folder,
-   * and open the HTML as a blob: URL. The new tab therefore shows a blob URL —
-   * never https://redportal.dpdns.org/Games/… — while the game's own files are
-   * still read from the local Games/ folder (the <base> tag makes its relative
-   * asset paths resolve there). Nothing is fetched from a remote game origin.
+   * Real fix for Unity WebGL (and any other engine with the same pattern):
+   * Unity's official loader resolves its own asset URLs using
+   * `new URL(relativePath, location.href)` internally -- NOT via <base>.
+   * That's normally harmless, but once the document's actual location is a
+   * blob: URL (unavoidable -- that IS what "open as a blob" means), that
+   * exact call throws "Failed to construct 'URL': Invalid URL", because
+   * blob: URLs don't support being used as a relative-resolution base the
+   * way http(s) URLs do. Confirmed directly: `new URL('x', 'blob:https://a/b')`
+   * throws under the same WHATWG URL spec browsers implement.
    *
-   * External (not-yet-vendored) URLs can't be fetched cross-origin, so they
-   * fall back to a normal open.
+   * Fix: inject an inline script, first thing in <head>, that wraps the
+   * global URL constructor inside the blob document itself. Any call that
+   * uses the blob's own location as the base gets silently redirected to
+   * the real folder URL instead; everything else passes through unchanged.
+   * This doesn't need to know which engine or which specific loader it's
+   * dealing with -- it fixes the exact failure pattern generically.
+   *
+   * The only case that genuinely can't be blobbed is a truly external,
+   * not-yet-vendored URL on a different origin (cross-origin fetch is
+   * blocked by CORS with no code-level workaround) -- vendor it into
+   * Games/ or Testing/ to eliminate that case entirely.
    */
   function openGame(url) {
     if (!url) return;
 
     let abs;
     try { abs = new URL(url, location.href); }
-    catch (_) { return triggerOpen(url); }
+    catch (_) { return triggerOpen(url); } // malformed href -- nothing left to try
 
-    // Only same-origin (local) games can be blob-loaded; others open directly.
-    if (abs.origin !== location.origin) return triggerOpen(abs.href);
+    if (abs.origin !== location.origin) return triggerOpen(abs.href); // truly external, can't fetch cross-origin
 
     const baseDir = abs.href.replace(/[^/]*$/, '');   // …/Games/Balatro/
     fetch(abs.href)
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
       .then(htmlText => {
         const baseTag = '<base href="' + baseDir + '">';
+        const urlPatchScript =
+          '<script>(function(){' +
+          'var REAL_BASE=' + JSON.stringify(baseDir) + ';' +
+          'var OrigURL=window.URL;' +
+          'function PatchedURL(url,base){' +
+            'if(base===undefined)return new OrigURL(url);' +
+            'if(base===location.href||base===document.URL)base=REAL_BASE;' +
+            'return new OrigURL(url,base);' +
+          '}' +
+          'PatchedURL.prototype=OrigURL.prototype;' +
+          'Object.setPrototypeOf(PatchedURL,OrigURL);' + // static methods (createObjectURL etc.) still work
+          'window.URL=PatchedURL;' +
+          '})();</script>';
+
         let out;
         if (/<head[^>]*>/i.test(htmlText)) {
-          out = htmlText.replace(/<head[^>]*>/i, m => m + baseTag);
+          out = htmlText.replace(/<head[^>]*>/i, m => m + urlPatchScript + baseTag);
         } else if (/<html[^>]*>/i.test(htmlText)) {
-          out = htmlText.replace(/<html[^>]*>/i, m => m + '<head>' + baseTag + '</head>');
+          out = htmlText.replace(/<html[^>]*>/i, m => m + '<head>' + urlPatchScript + baseTag + '</head>');
         } else {
-          out = baseTag + htmlText;
+          out = urlPatchScript + baseTag + htmlText;
         }
         triggerOpen(URL.createObjectURL(new Blob([out], { type: 'text/html' })));
       })
-      .catch(() => triggerOpen(abs.href));   // fallback: direct local open
+      .catch(() => triggerOpen(abs.href));   // genuine fetch/network failure -- nothing to blob at all
   }
 
   // Delegate game grid clicks (both grids share one handler each)
@@ -2211,6 +2248,7 @@ footer {
         if (!Array.isArray(list) || !list.length) return;
         $grid.innerHTML = list.map(g => `
         <a class="game-btn" href="${escHtml(g.href)}" target="_blank" rel="noopener noreferrer"><span>${escHtml(g.name)}</span></a>`).join('');
+        rebuildSearchCache(); // grid DOM nodes just got replaced -- old cache is stale
       })
       .catch(() => { /* leave existing static grid in place */ });
   }
