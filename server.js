@@ -41,6 +41,14 @@ const BOT_SECRET = process.env.BOT_SECRET || '0fffaa699dd1422eac9cf419d1649f8ff9
    If R2_PUBLIC_DOMAIN is left unset, this feature is a no-op and the
    server falls back to serving Games/Testing from local disk exactly
    like before — safe default for local dev without R2 configured.   */
+// Self-ping — keeps the Render free-tier instance from spinning down due to
+// inactivity. Every SELF_PING_INTERVAL_MS, the server requests its own
+// /health endpoint over HTTPS. Purely operational; no effect on the site's
+// look or behavior. Set SELF_PING_ENABLED=false to disable.
+const SELF_PING_ENABLED       = (process.env.SELF_PING_ENABLED || 'true').toLowerCase() !== 'false';
+const SELF_PING_URL           = process.env.SELF_PING_URL || 'https://redportal.dpdns.org/health';
+const SELF_PING_INTERVAL_MS   = parseInt(process.env.SELF_PING_INTERVAL_MS || String(10 * 60 * 1000), 10); // 10 minutes
+
 const R2_PUBLIC_DOMAIN   = process.env.R2_PUBLIC_DOMAIN || '';
 const R2_BACKED_PREFIXES = (process.env.R2_BACKED_PREFIXES || 'Games,Testing,Movies')
   .split(',')
@@ -635,6 +643,27 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res, filePath, !!r2BackedPrefix(pathname));
 });
 
+/* ── Self-ping ── keeps the Render deployment awake ──────────────
+   Fires a HEAD (falling back to GET) request at SELF_PING_URL on an
+   interval. Failures are logged but never crash the process. ── */
+function selfPing() {
+  try {
+    const target = new url.URL(SELF_PING_URL);
+    const lib = target.protocol === 'http:' ? http : https;
+    const req = lib.request(target, { method: 'HEAD', timeout: 15000 }, res => {
+      console.log(`  🔁  Self-ping ${SELF_PING_URL} → ${res.statusCode}`);
+      res.resume();
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', err => {
+      console.warn(`  ⚠   Self-ping failed: ${err.message}`);
+    });
+    req.end();
+  } catch (err) {
+    console.warn(`  ⚠   Self-ping error: ${err.message}`);
+  }
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════════╗');
@@ -655,6 +684,12 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`  ✓   R2 redirect:  ${R2_BACKED_PREFIXES.join(', ')} → https://${R2_PUBLIC_DOMAIN}`);
   } else {
     console.log('  ⚠   R2_PUBLIC_DOMAIN not set — Games/Testing will be served from local disk.');
+  }
+  if (SELF_PING_ENABLED) {
+    console.log(`  🔁  Self-ping: ${SELF_PING_URL} every ${Math.round(SELF_PING_INTERVAL_MS / 60000)} min`);
+    setInterval(selfPing, SELF_PING_INTERVAL_MS);
+  } else {
+    console.log('  ⚠   Self-ping disabled (SELF_PING_ENABLED=false).');
   }
   console.log('');
   console.log('  Press Ctrl+C to stop.');
