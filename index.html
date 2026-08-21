@@ -2184,6 +2184,24 @@ footer {
    * blocked by CORS with no code-level workaround) -- vendor it into
    * Games/ or Testing/ to eliminate that case entirely.
    */
+  /**
+   * Red Portal's own real origin (e.g. https://redportal.dpdns.org). Normally
+   * identical to location.origin -- but when this whole page has itself been
+   * opened as a blob: URL (see blob_launcher.html), location.origin reflects
+   * whatever page CREATED that blob, not redportal.dpdns.org. A <base> tag
+   * pointing at the real site is exactly what a blob-wrapped copy of this
+   * page has injected for relative-link resolution, so reading it back here
+   * gives the right answer in both the normal and blob-wrapped case without
+   * the two files needing to agree on any special global variable.
+   */
+  function getPortalOrigin() {
+    const baseEl = document.querySelector('base[href]');
+    if (baseEl && baseEl.href) {
+      try { return new URL(baseEl.href).origin; } catch (_) { /* fall through */ }
+    }
+    return location.origin;
+  }
+
   function openGame(url) {
     if (!url) return;
 
@@ -2191,7 +2209,7 @@ footer {
     try { abs = new URL(url, location.href); }
     catch (_) { return triggerOpen(url); } // malformed href -- nothing left to try
 
-    if (abs.origin !== location.origin) return triggerOpen(abs.href); // truly external, can't fetch cross-origin
+    if (abs.origin !== getPortalOrigin()) return triggerOpen(abs.href); // truly external, can't fetch cross-origin
 
     const baseDir = abs.href.replace(/[^/]*$/, '');   // …/Games/Balatro/
     fetch(abs.href)
