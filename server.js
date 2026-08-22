@@ -99,22 +99,34 @@ function getS3Client() {
   return s3Client;
 }
 
-/* List "folders" directly under a prefix, e.g. listR2Folders('Games/')
-   returns ['Baldis-Basics-Plus', 'Balatro', ...] using S3's delimiter
-   trick (CommonPrefixes) rather than fetching every object.           */
 /* ── Locate each game's real index.html and build the auto-populated
    grid data ──────────────────────────────────────────────────────
+   Two-phase listing, so this stays fast even with Games/ holding
+   165,000+ objects from the R2 migration:
+
+     Phase 1 — ONE cheap delimited listing (CommonPrefixes) to get just
+               the top-level folder names under Games/ or Testing/.
+               This is bounded by folder COUNT, not total file count.
+     Phase 2 — for each folder, a small recursive listing scoped to
+               JUST that folder's own prefix (Games/<folder>/) to find
+               its index.html. Bounded by that one game's file count
+               (dozens–hundreds), not the whole bucket. Folders run
+               with limited concurrency so this stays quick even with
+               a few hundred games.
+
+   (The old approach did ONE undelimited listing of the entire Games/
+   prefix to find every index.html at once -- correct, but with
+   165k+ objects that's ~165 sequential R2 API calls just to render
+   the grid, which is what made the Testing/Games tabs painfully slow
+   to populate.)
+
    Some game folders have index.html right at their root; others have
    it nested (e.g. a build output subfolder), and a few vendor an
    entire "related games" widget several levels deep, meaning MULTIPLE
-   unrelated games' index.html files can exist under one folder.
-
-   This does ONE full recursive listing of everything under Games/ or
-   Testing/ (no delimiter), groups every index.html found by its
-   top-level folder, and picks the SHALLOWEST one per folder as that
-   game's entry point -- correct for a simple nested build folder, and
-   normally correct for the "multiple vendored games" case too, since
-   the intended target is typically the shallowest index.html. A
+   unrelated games' index.html files can exist under one folder. Per
+   folder, the SHALLOWEST index.html found is picked as that game's
+   entry point -- correct for a simple nested build folder, and
+   normally correct for the "multiple vendored games" case too. A
    folder with more than one index.html at the same shallowest depth
    is genuinely ambiguous; it still picks a deterministic result
    (alphabetical) and logs a warning so you can pin the correct one
@@ -123,63 +135,103 @@ function getS3Client() {
    Display name defaults to the folder name with dashes turned into
    spaces (e.g. "there-is-no-game" -> "there is no game"), unless
    overridden.                                                        */
-async function listR2GameFolders(topPrefix) {
+
+/* Phase 1 — top-level folder names directly under a prefix, via S3's
+   delimiter trick (CommonPrefixes). One or two pages even when the
+   prefix holds hundreds of thousands of files, since this never
+   descends past the first "/".                                       */
+async function listTopLevelFolders(topPrefix) {
   const client = getS3Client();
-  if (!client) return [];
   const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
 
-  const byFolder = new Map(); // folder -> [{ subPath, depth }, ...]
-
+  const folders = [];
   let continuationToken;
   do {
     const cmd = new ListObjectsV2Command({
       Bucket: R2_BUCKET,
-      Prefix: topPrefix,             // e.g. "Games/" -- deliberately NO Delimiter,
-      ContinuationToken: continuationToken,  // we need every nested object to find index.html
+      Prefix: topPrefix,
+      Delimiter: '/',
+      ContinuationToken: continuationToken,
     });
     const resp = await client.send(cmd);
-    for (const obj of resp.Contents || []) {
-      const rest = obj.Key.slice(topPrefix.length); // "Baldis-Basics-Plus/_cdn/.../index.html"
-      const slashIdx = rest.indexOf('/');
-      if (slashIdx === -1) continue; // stray file directly under the prefix, not inside a folder
-      const folder  = rest.slice(0, slashIdx);
-      const subPath = rest.slice(slashIdx + 1);
-      if (!/index\.html?$/i.test(subPath)) continue; // only care about index.html candidates
-      if (!byFolder.has(folder)) byFolder.set(folder, []);
-      byFolder.get(folder).push({
-        subPath,
-        depth: subPath.split('/').length, // 1 = directly in the folder root
-      });
+    for (const cp of resp.CommonPrefixes || []) {
+      const folder = cp.Prefix.slice(topPrefix.length).replace(/\/$/, '');
+      if (folder) folders.push(folder);
     }
     continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
   } while (continuationToken);
 
-  const overrides = getGameOverrides();
-  const results = [];
+  return folders;
+}
 
-  for (const [folder, candidates] of byFolder.entries()) {
-    candidates.sort((a, b) => a.depth - b.depth || a.subPath.localeCompare(b.subPath));
-    const chosen = candidates[0];
+/* Phase 2 — shallowest index.html within ONE folder's own prefix. */
+async function findShallowestIndexHtml(topPrefix, folder) {
+  const client = getS3Client();
+  const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
+  const folderPrefix = `${topPrefix}${folder}/`;
 
-    if (candidates.length > 1 && candidates[1].depth === chosen.depth) {
-      console.warn(
-        `  ⚠  Ambiguous index.html under ${topPrefix}${folder}/ -- picked "${chosen.subPath}" ` +
-        `out of ${candidates.length} candidates at the shallowest depth. ` +
-        `Add an entry to game-overrides.json if this picked the wrong one.`
-      );
-    }
-
-    const override = overrides[folder] || {};
-    const name = override.name || folder.replace(/-/g, ' ');
-    const relPath = override.path || chosen.subPath;
-
-    results.push({
-      folder,
-      name,
-      href: `${topPrefix}${folder}/${relPath}`,
+  const candidates = [];
+  let continuationToken;
+  do {
+    const cmd = new ListObjectsV2Command({
+      Bucket: R2_BUCKET,
+      Prefix: folderPrefix,          // scoped to this one game's own files
+      ContinuationToken: continuationToken,
     });
-  }
+    const resp = await client.send(cmd);
+    for (const obj of resp.Contents || []) {
+      const subPath = obj.Key.slice(folderPrefix.length);
+      if (!subPath || !/index\.html?$/i.test(subPath)) continue;
+      candidates.push({ subPath, depth: subPath.split('/').length });
+    }
+    continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
+  } while (continuationToken);
 
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.depth - b.depth || a.subPath.localeCompare(b.subPath));
+  const chosen = candidates[0];
+
+  if (candidates.length > 1 && candidates[1].depth === chosen.depth) {
+    console.warn(
+      `  ⚠  Ambiguous index.html under ${folderPrefix} -- picked "${chosen.subPath}" ` +
+      `out of ${candidates.length} candidates at the shallowest depth. ` +
+      `Add an entry to game-overrides.json if this picked the wrong one.`
+    );
+  }
+  return chosen.subPath;
+}
+
+/* Run an async fn over items with at most `limit` in flight at once. */
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+async function listR2GameFolders(topPrefix) {
+  const client = getS3Client();
+  if (!client) return [];
+
+  const folders = await listTopLevelFolders(topPrefix);
+  const overrides = getGameOverrides();
+
+  const entries = await mapWithConcurrency(folders, 8, async folder => {
+    const override = overrides[folder] || {};
+    const relPath = override.path || await findShallowestIndexHtml(topPrefix, folder);
+    if (!relPath) return null; // no index.html found anywhere in this folder -- skip it
+
+    const name = override.name || folder.replace(/-/g, ' ');
+    return { folder, name, href: `${topPrefix}${folder}/${relPath}` };
+  });
+
+  const results = entries.filter(Boolean);
   results.sort((a, b) => a.name.localeCompare(b.name));
   return results;
 }
@@ -558,13 +610,17 @@ async function handleMovies(req, res) {
 
 /* ── GET /api/games and /api/testing — auto-populate the game grids
    straight from what's actually in the R2 bucket. Dropping a new game
-   folder into Games/ or Testing/ and reloading Red Portal is all it
-   takes -- no index.html edits, no redeploy. See listR2GameFolders()
-   for how the entry-point index.html is located inside each folder.  */
-async function handleGameList(req, res, topPrefix) {
+   folder into Games/ or Testing/ shows up here automatically -- no
+   index.html edits, no redeploy. See listR2GameFolders() for how the
+   entry-point index.html is located inside each folder. Pass
+   ?fresh=1 to bypass the cache for this one request (handy right
+   after a sync to confirm a new game is actually visible).           */
+async function handleGameList(req, res, topPrefix, bypassCache) {
   try {
     const origin = getRequestOrigin(req);
-    const games = await cachedList(topPrefix, CACHE_TTL_MS_GAMES, () => listR2GameFolders(topPrefix));
+    const games = bypassCache
+      ? await listR2GameFolders(topPrefix)
+      : await cachedList(topPrefix, CACHE_TTL_MS_GAMES, () => listR2GameFolders(topPrefix));
     const absolute = games.map(g => ({ ...g, href: `${origin}/${g.href}` })); // relative -> absolute
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
     res.end(JSON.stringify(absolute));
@@ -573,6 +629,58 @@ async function handleGameList(req, res, topPrefix) {
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
     res.end('[]');
   }
+}
+
+/* ── GET /api/r2-status — diagnostic for the R2 auto-discovery feature.
+   Hit this directly in the browser to see, at a glance:
+     - which of the 5 required env vars are actually set on this
+       deployment (booleans only -- never the secret value itself)
+     - whether a real S3 client could be constructed
+     - whether a real listing call against Games/, Testing/, and
+       Movies/ succeeds, how long it took, and (on failure) the exact
+       error message -- e.g. an auth/permission error from R2, a
+       missing @aws-sdk/client-s3 install, wrong account/bucket, etc.
+   This makes the "why is nothing showing up" question answerable
+   without needing to dig through Render's server logs.                */
+async function handleR2Status(req, res) {
+  const configured = {
+    R2_ACCOUNT_ID:             !!R2_ACCOUNT_ID,
+    R2_LIST_ACCESS_KEY_ID:     !!R2_LIST_ACCESS_KEY_ID,
+    R2_LIST_SECRET_ACCESS_KEY: !!R2_LIST_SECRET_ACCESS_KEY,
+    R2_BUCKET:                 !!R2_BUCKET,
+    R2_PUBLIC_DOMAIN:          !!R2_PUBLIC_DOMAIN,
+  };
+
+  const result = { configured, clientCreated: false };
+  let client;
+  try {
+    client = getS3Client();
+    result.clientCreated = !!client;
+  } catch (e) {
+    result.clientCreationError = e.message; // e.g. @aws-sdk/client-s3 not installed
+  }
+
+  if (client) {
+    for (const prefix of ['Games/', 'Testing/']) {
+      const started = Date.now();
+      try {
+        const folders = await listTopLevelFolders(prefix);
+        result[prefix] = { ok: true, folderCount: folders.length, ms: Date.now() - started, sample: folders.slice(0, 8) };
+      } catch (e) {
+        result[prefix] = { ok: false, error: e.message, ms: Date.now() - started };
+      }
+    }
+    const started = Date.now();
+    try {
+      const movies = await listR2Files('Movies/', VIDEO_RE);
+      result['Movies/'] = { ok: true, fileCount: movies.length, ms: Date.now() - started };
+    } catch (e) {
+      result['Movies/'] = { ok: false, error: e.message, ms: Date.now() - started };
+    }
+  }
+
+  res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+  res.end(JSON.stringify(result, null, 2));
 }
 
 
@@ -604,12 +712,19 @@ const server = http.createServer((req, res) => {
     return handleMovies(req, res);
   }
 
-  /* ── /api/games, /api/testing — auto-populated game grid data ── */
+  /* ── /api/r2-status — diagnostic: are the R2 listing env vars set,
+     and does a real listing call actually succeed?                  */
+  if (pathname === '/api/r2-status') {
+    return handleR2Status(req, res);
+  }
+
+  /* ── /api/games, /api/testing — auto-populated game grid data ──
+     ?fresh=1 bypasses the cache for this one request.                */
   if (pathname === '/api/games') {
-    return handleGameList(req, res, 'Games/');
+    return handleGameList(req, res, 'Games/', parsed.query.fresh === '1');
   }
   if (pathname === '/api/testing') {
-    return handleGameList(req, res, 'Testing/');
+    return handleGameList(req, res, 'Testing/', parsed.query.fresh === '1');
   }
 
   /* ── Games/Testing → redirect straight to R2 ──
