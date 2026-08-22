@@ -215,7 +215,7 @@ async function mapWithConcurrency(items, limit, fn) {
   return results;
 }
 
-async function listR2GameFolders(topPrefix) {
+async function listR2GameFoldersViaS3(topPrefix) {
   const client = getS3Client();
   if (!client) return [];
 
@@ -234,6 +234,115 @@ async function listR2GameFolders(topPrefix) {
   const results = entries.filter(Boolean);
   results.sort((a, b) => a.name.localeCompare(b.name));
   return results;
+}
+
+/* ── Fast path: derive game listings from manifest.json instead of
+   live R2 ListObjectsV2 calls ───────────────────────────────────────
+   sync_to_r2.py already writes a manifest.json (every relative path
+   → public R2 URL) on every sync run and uploads it to R2 alongside
+   the games themselves. Diagnosed via /api/r2-status: each individual
+   R2 List API call from this deployment takes multiple seconds
+   round-trip, so ANY approach needing more than a couple of List
+   calls per request ends up taking tens of seconds overall -- whether
+   that's one huge recursive scan of Games/ (165k+ objects) or several
+   smaller per-folder scans (listR2GameFoldersViaS3 above). manifest.json
+   turns "N slow authenticated R2 API calls" into "1 fast plain HTTPS
+   GET" through Cloudflare's CDN, regardless of N.
+
+   Falls back to listR2GameFoldersViaS3 (slow but always-correct) if
+   the manifest is missing, unreadable, or yields nothing for this
+   prefix -- so this can never make things worse than before, only
+   faster once the manifest is available (next sync run after this
+   ships).                                                            */
+let manifestCache = null; // { data, expires }
+const MANIFEST_CACHE_TTL_MS = parseInt(process.env.MANIFEST_CACHE_TTL_MS || String(30 * 1000), 10);
+
+function fetchManifest() {
+  return new Promise((resolve, reject) => {
+    if (!R2_PUBLIC_DOMAIN) return reject(new Error('R2_PUBLIC_DOMAIN not set'));
+    const req = https.get(
+      {
+        hostname: R2_PUBLIC_DOMAIN,
+        path: '/manifest.json',
+        agent: httpsAgent,
+        headers: { 'user-agent': 'red-portal-server' },
+      },
+      res => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`manifest.json returned HTTP ${res.statusCode}`));
+        }
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')));
+          } catch (e) {
+            reject(new Error(`manifest.json is not valid JSON: ${e.message}`));
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.setTimeout(8000, () => {
+      req.destroy();
+      reject(new Error('manifest.json fetch timed out'));
+    });
+  });
+}
+
+async function getManifest() {
+  const now = Date.now();
+  if (manifestCache && manifestCache.expires > now) return manifestCache.data;
+  const data = await fetchManifest();
+  manifestCache = { data, expires: now + MANIFEST_CACHE_TTL_MS };
+  return data;
+}
+
+/* Same { folder, name, href }[] shape as listR2GameFoldersViaS3, but
+   computed purely from the already-fetched manifest keys in memory --
+   no network calls at all. */
+function buildGameListFromManifest(topPrefix, manifest) {
+  const byFolder = new Map(); // folder -> [{ subPath, depth }, ...]
+
+  for (const relPath of Object.keys(manifest)) {
+    if (!relPath.startsWith(topPrefix)) continue;
+    const rest = relPath.slice(topPrefix.length);
+    const slashIdx = rest.indexOf('/');
+    if (slashIdx === -1) continue; // stray file directly under the prefix
+    const folder  = rest.slice(0, slashIdx);
+    const subPath = rest.slice(slashIdx + 1);
+    if (!/index\.html?$/i.test(subPath)) continue;
+    if (!byFolder.has(folder)) byFolder.set(folder, []);
+    byFolder.get(folder).push({ subPath, depth: subPath.split('/').length });
+  }
+
+  const overrides = getGameOverrides();
+  const results = [];
+  for (const [folder, candidates] of byFolder.entries()) {
+    candidates.sort((a, b) => a.depth - b.depth || a.subPath.localeCompare(b.subPath));
+    const chosen = candidates[0];
+    const override = overrides[folder] || {};
+    const name = override.name || folder.replace(/-/g, ' ');
+    const relPath = override.path || chosen.subPath;
+    results.push({ folder, name, href: `${topPrefix}${folder}/${relPath}` });
+  }
+  results.sort((a, b) => a.name.localeCompare(b.name));
+  return results;
+}
+
+async function listR2GameFolders(topPrefix) {
+  // Fast path: manifest.json (see comment above)
+  try {
+    const manifest = await getManifest();
+    const results = buildGameListFromManifest(topPrefix, manifest);
+    if (results.length) return results;
+    console.warn(`  ⚠  manifest.json had no entries under ${topPrefix} -- falling back to live R2 listing.`);
+  } catch (e) {
+    console.warn(`  ⚠  manifest.json fast path unavailable (${e.message}) -- falling back to live R2 listing.`);
+  }
+  // Slow-but-authoritative fallback: live two-phase R2 listing.
+  return listR2GameFoldersViaS3(topPrefix);
 }
 
 /* List files directly under a prefix (no delimiter -- flat listing),
@@ -652,6 +761,29 @@ async function handleR2Status(req, res) {
   };
 
   const result = { configured, clientCreated: false };
+
+  // ── manifest.json fast path — this is what /api/games and
+  // /api/testing actually use day-to-day. Reported first/separately
+  // since it's the thing that matters for "why is the grid slow/empty".
+  const manifestStarted = Date.now();
+  try {
+    const manifest = await fetchManifest(); // bypass cache -- always a fresh check here
+    const keys = Object.keys(manifest);
+    result['manifest.json'] = {
+      ok: true,
+      ms: Date.now() - manifestStarted,
+      totalEntries: keys.length,
+      gamesEntries: keys.filter(k => k.startsWith('Games/')).length,
+      testingEntries: keys.filter(k => k.startsWith('Testing/')).length,
+    };
+  } catch (e) {
+    result['manifest.json'] = { ok: false, error: e.message, ms: Date.now() - manifestStarted };
+  }
+
+  // ── Live R2 API listing — the slower fallback path. Only worth
+  // exercising here if the manifest fast path failed above; skip it
+  // when the manifest's already working to avoid an unnecessarily
+  // slow diagnostic call now that we know these can take seconds each.
   let client;
   try {
     client = getS3Client();
@@ -660,12 +792,12 @@ async function handleR2Status(req, res) {
     result.clientCreationError = e.message; // e.g. @aws-sdk/client-s3 not installed
   }
 
-  if (client) {
+  if (client && !result['manifest.json'].ok) {
     for (const prefix of ['Games/', 'Testing/']) {
       const started = Date.now();
       try {
         const folders = await listTopLevelFolders(prefix);
-        result[prefix] = { ok: true, folderCount: folders.length, ms: Date.now() - started, sample: folders.slice(0, 8) };
+        result[prefix] = { ok: true, folderCount: folders.length, ms: Date.now() - started, sample: folders.slice(0, 8), note: 'live S3 listing (manifest fast path failed)' };
       } catch (e) {
         result[prefix] = { ok: false, error: e.message, ms: Date.now() - started };
       }

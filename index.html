@@ -2273,6 +2273,8 @@ footer {
   function renderGameGrid(containerId, apiPath) {
     const $grid = document.getElementById(containerId);
     if (!$grid) return;
+    if ($grid.dataset.fetching === '1') return; // previous request for this grid hasn't finished -- don't stack another on top
+    $grid.dataset.fetching = '1';
     const escHtml = s => String(s).replace(/[&<>"]/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -2287,7 +2289,8 @@ footer {
         $grid.innerHTML = html;
         rebuildSearchCache(); // grid DOM nodes just got replaced -- old cache is stale
       })
-      .catch(() => { /* leave existing grid in place */ });
+      .catch(() => { /* leave existing grid in place */ })
+      .finally(() => { $grid.dataset.fetching = '0'; });
   }
 
   function refreshAllGrids() {
