@@ -2258,14 +2258,18 @@ footer {
   /* ═══════════════════════════════════════════════════════════════
      GAMES / TESTING GRIDS  (auto-populated from R2 via /api/games and
      /api/testing). Drop a new game folder into Games/ or Testing/ in
-     the bucket and reload -- it shows up here automatically, no
-     index.html edit or redeploy needed. hrefs from the API are already
+     the bucket -- it shows up here automatically within a few seconds,
+     no index.html edit, redeploy, OR manual page reload needed (see
+     the polling loop below). hrefs from the API are already
      fully-qualified absolute URLs.
 
      Only takes over rendering once the API actually returns games --
      an empty response (R2 listing not configured yet, or a genuinely
      empty folder) leaves the existing static grid below untouched, so
-     this can never make the site go blank mid-setup.                 */
+     this can never make the site go blank mid-setup. On repeat calls
+     (from the polling loop), the same diffing logic applies: if the
+     list is empty we simply skip re-rendering rather than wiping out
+     whatever's already showing.                                      */
   function renderGameGrid(containerId, apiPath) {
     const $grid = document.getElementById(containerId);
     if (!$grid) return;
@@ -2276,14 +2280,37 @@ footer {
       .then(r => (r.ok ? r.json() : []))
       .then(list => {
         if (!Array.isArray(list) || !list.length) return;
-        $grid.innerHTML = list.map(g => `
+        const html = list.map(g => `
         <a class="game-btn" href="${escHtml(g.href)}" target="_blank" rel="noopener noreferrer"><span>${escHtml(g.name)}</span></a>`).join('');
+        if (html === $grid.dataset.lastRendered) return; // nothing changed -- skip the DOM churn
+        $grid.dataset.lastRendered = html;
+        $grid.innerHTML = html;
         rebuildSearchCache(); // grid DOM nodes just got replaced -- old cache is stale
       })
-      .catch(() => { /* leave existing static grid in place */ });
+      .catch(() => { /* leave existing grid in place */ });
   }
-  renderGameGrid('gamesGrid', '/api/games');
-  renderGameGrid('preLaunchGrid', '/api/testing');
+
+  function refreshAllGrids() {
+    renderGameGrid('gamesGrid', '/api/games');
+    renderGameGrid('preLaunchGrid', '/api/testing');
+  }
+  refreshAllGrids();
+
+  // Auto-refresh: poll the R2-backed listings periodically so a game that
+  // finishes syncing while someone already has the page open just appears
+  // on its own -- no manual reload required. Paused while the tab is
+  // hidden/backgrounded to avoid pointless requests, and resumes (with an
+  // immediate refresh) as soon as the tab becomes visible again.
+  const GRID_REFRESH_INTERVAL_MS = 20000; // 20s
+  let gridRefreshTimer = setInterval(refreshAllGrids, GRID_REFRESH_INTERVAL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      clearInterval(gridRefreshTimer);
+    } else {
+      refreshAllGrids();
+      gridRefreshTimer = setInterval(refreshAllGrids, GRID_REFRESH_INTERVAL_MS);
+    }
+  });
 
 
   /* ═══════════════════════════════════════════════════════════════

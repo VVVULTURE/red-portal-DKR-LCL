@@ -214,12 +214,12 @@ async function listR2Files(prefix, extRegex) {
 
 /* Simple in-memory cache so every page load doesn't hit R2's API --
    a new game folder or movie shows up within CACHE_TTL_MS of the next
-   request after it's uploaded, which comfortably satisfies "shows up
-   next time the site boots up or reloads". Games/Testing get a longer
-   TTL since the full recursive listing is heavier than the flat
-   Movies listing.                                                     */
-const CACHE_TTL_MS_GAMES  = 5 * 60 * 1000;  // 5 minutes
-const CACHE_TTL_MS_MOVIES = 60 * 1000;      // 1 minute
+   request after it's uploaded. Short TTLs here + the client-side
+   auto-refresh polling in index.html (see renderGameGrid) together mean
+   a freshly-synced game shows up in the browser within seconds, with no
+   manual page reload needed — not just "next time the site boots up".  */
+const CACHE_TTL_MS_GAMES  = parseInt(process.env.GAMES_CACHE_TTL_MS  || String(15 * 1000), 10);  // 15s
+const CACHE_TTL_MS_MOVIES = parseInt(process.env.MOVIES_CACHE_TTL_MS || String(15 * 1000), 10);  // 15s
 const listCache = new Map(); // key -> { data, expires }
 
 async function cachedList(key, ttlMs, fetcher) {
