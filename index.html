@@ -2234,6 +2234,15 @@ footer {
         const urlPatchScript =
           '<script>(function(){' +
           'var REAL_BASE=' + JSON.stringify(baseDir) + ';' +
+          // A blob: document has no query string of its own -- fetching the
+          // page's raw HTML and re-hosting it as a blob (below) drops
+          // whatever ?query=string the ORIGINAL link had, since the blob
+          // isn't actually navigated to via that URL. Pages that read
+          // location.search for their own config (currently just the
+          // emulator player, which needs ?rom=&core=&name=) would silently
+          // see nothing and misbehave. Stash the real one here so such a
+          // page can read it instead of location.search.
+          'window.__REAL_SEARCH__=' + JSON.stringify(abs.search) + ';' +
           'var OrigURL=window.URL;' +
           'function PatchedURL(url,base){' +
             'if(base===undefined)return new OrigURL(url);' +
