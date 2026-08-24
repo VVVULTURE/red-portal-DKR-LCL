@@ -50,7 +50,7 @@ const SELF_PING_URL           = process.env.SELF_PING_URL || 'https://redportal.
 const SELF_PING_INTERVAL_MS   = parseInt(process.env.SELF_PING_INTERVAL_MS || String(10 * 60 * 1000), 10); // 10 minutes
 
 const R2_PUBLIC_DOMAIN   = process.env.R2_PUBLIC_DOMAIN || '';
-const R2_BACKED_PREFIXES = (process.env.R2_BACKED_PREFIXES || 'Games,Testing,Movies')
+const R2_BACKED_PREFIXES = (process.env.R2_BACKED_PREFIXES || 'Games,Testing,Movies,Emulation')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
@@ -99,34 +99,22 @@ function getS3Client() {
   return s3Client;
 }
 
+/* List "folders" directly under a prefix, e.g. listR2Folders('Games/')
+   returns ['Baldis-Basics-Plus', 'Balatro', ...] using S3's delimiter
+   trick (CommonPrefixes) rather than fetching every object.           */
 /* ── Locate each game's real index.html and build the auto-populated
    grid data ──────────────────────────────────────────────────────
-   Two-phase listing, so this stays fast even with Games/ holding
-   165,000+ objects from the R2 migration:
-
-     Phase 1 — ONE cheap delimited listing (CommonPrefixes) to get just
-               the top-level folder names under Games/ or Testing/.
-               This is bounded by folder COUNT, not total file count.
-     Phase 2 — for each folder, a small recursive listing scoped to
-               JUST that folder's own prefix (Games/<folder>/) to find
-               its index.html. Bounded by that one game's file count
-               (dozens–hundreds), not the whole bucket. Folders run
-               with limited concurrency so this stays quick even with
-               a few hundred games.
-
-   (The old approach did ONE undelimited listing of the entire Games/
-   prefix to find every index.html at once -- correct, but with
-   165k+ objects that's ~165 sequential R2 API calls just to render
-   the grid, which is what made the Testing/Games tabs painfully slow
-   to populate.)
-
    Some game folders have index.html right at their root; others have
    it nested (e.g. a build output subfolder), and a few vendor an
    entire "related games" widget several levels deep, meaning MULTIPLE
-   unrelated games' index.html files can exist under one folder. Per
-   folder, the SHALLOWEST index.html found is picked as that game's
-   entry point -- correct for a simple nested build folder, and
-   normally correct for the "multiple vendored games" case too. A
+   unrelated games' index.html files can exist under one folder.
+
+   This does ONE full recursive listing of everything under Games/ or
+   Testing/ (no delimiter), groups every index.html found by its
+   top-level folder, and picks the SHALLOWEST one per folder as that
+   game's entry point -- correct for a simple nested build folder, and
+   normally correct for the "multiple vendored games" case too, since
+   the intended target is typically the shallowest index.html. A
    folder with more than one index.html at the same shallowest depth
    is genuinely ambiguous; it still picks a deterministic result
    (alphabetical) and logs a warning so you can pin the correct one
@@ -135,214 +123,65 @@ function getS3Client() {
    Display name defaults to the folder name with dashes turned into
    spaces (e.g. "there-is-no-game" -> "there is no game"), unless
    overridden.                                                        */
-
-/* Phase 1 — top-level folder names directly under a prefix, via S3's
-   delimiter trick (CommonPrefixes). One or two pages even when the
-   prefix holds hundreds of thousands of files, since this never
-   descends past the first "/".                                       */
-async function listTopLevelFolders(topPrefix) {
+async function listR2GameFolders(topPrefix) {
   const client = getS3Client();
+  if (!client) return [];
   const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
 
-  const folders = [];
+  const byFolder = new Map(); // folder -> [{ subPath, depth }, ...]
+
   let continuationToken;
   do {
     const cmd = new ListObjectsV2Command({
       Bucket: R2_BUCKET,
-      Prefix: topPrefix,
-      Delimiter: '/',
-      ContinuationToken: continuationToken,
-    });
-    const resp = await client.send(cmd);
-    for (const cp of resp.CommonPrefixes || []) {
-      const folder = cp.Prefix.slice(topPrefix.length).replace(/\/$/, '');
-      if (folder) folders.push(folder);
-    }
-    continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
-  } while (continuationToken);
-
-  return folders;
-}
-
-/* Phase 2 — shallowest index.html within ONE folder's own prefix. */
-async function findShallowestIndexHtml(topPrefix, folder) {
-  const client = getS3Client();
-  const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
-  const folderPrefix = `${topPrefix}${folder}/`;
-
-  const candidates = [];
-  let continuationToken;
-  do {
-    const cmd = new ListObjectsV2Command({
-      Bucket: R2_BUCKET,
-      Prefix: folderPrefix,          // scoped to this one game's own files
-      ContinuationToken: continuationToken,
+      Prefix: topPrefix,             // e.g. "Games/" -- deliberately NO Delimiter,
+      ContinuationToken: continuationToken,  // we need every nested object to find index.html
     });
     const resp = await client.send(cmd);
     for (const obj of resp.Contents || []) {
-      const subPath = obj.Key.slice(folderPrefix.length);
-      if (!subPath || !/index\.html?$/i.test(subPath)) continue;
-      candidates.push({ subPath, depth: subPath.split('/').length });
+      const rest = obj.Key.slice(topPrefix.length); // "Baldis-Basics-Plus/_cdn/.../index.html"
+      const slashIdx = rest.indexOf('/');
+      if (slashIdx === -1) continue; // stray file directly under the prefix, not inside a folder
+      const folder  = rest.slice(0, slashIdx);
+      const subPath = rest.slice(slashIdx + 1);
+      if (!/index\.html?$/i.test(subPath)) continue; // only care about index.html candidates
+      if (!byFolder.has(folder)) byFolder.set(folder, []);
+      byFolder.get(folder).push({
+        subPath,
+        depth: subPath.split('/').length, // 1 = directly in the folder root
+      });
     }
     continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
   } while (continuationToken);
 
-  if (!candidates.length) return null;
-  candidates.sort((a, b) => a.depth - b.depth || a.subPath.localeCompare(b.subPath));
-  const chosen = candidates[0];
-
-  if (candidates.length > 1 && candidates[1].depth === chosen.depth) {
-    console.warn(
-      `  ⚠  Ambiguous index.html under ${folderPrefix} -- picked "${chosen.subPath}" ` +
-      `out of ${candidates.length} candidates at the shallowest depth. ` +
-      `Add an entry to game-overrides.json if this picked the wrong one.`
-    );
-  }
-  return chosen.subPath;
-}
-
-/* Run an async fn over items with at most `limit` in flight at once. */
-async function mapWithConcurrency(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i], i);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
-async function listR2GameFoldersViaS3(topPrefix) {
-  const client = getS3Client();
-  if (!client) return [];
-
-  const folders = await listTopLevelFolders(topPrefix);
-  const overrides = getGameOverrides();
-
-  const entries = await mapWithConcurrency(folders, 8, async folder => {
-    const override = overrides[folder] || {};
-    const relPath = override.path || await findShallowestIndexHtml(topPrefix, folder);
-    if (!relPath) return null; // no index.html found anywhere in this folder -- skip it
-
-    const name = override.name || folder.replace(/-/g, ' ');
-    return { folder, name, href: `${topPrefix}${folder}/${relPath}` };
-  });
-
-  const results = entries.filter(Boolean);
-  results.sort((a, b) => a.name.localeCompare(b.name));
-  return results;
-}
-
-/* ── Fast path: derive game listings from manifest.json instead of
-   live R2 ListObjectsV2 calls ───────────────────────────────────────
-   sync_to_r2.py already writes a manifest.json (every relative path
-   → public R2 URL) on every sync run and uploads it to R2 alongside
-   the games themselves. Diagnosed via /api/r2-status: each individual
-   R2 List API call from this deployment takes multiple seconds
-   round-trip, so ANY approach needing more than a couple of List
-   calls per request ends up taking tens of seconds overall -- whether
-   that's one huge recursive scan of Games/ (165k+ objects) or several
-   smaller per-folder scans (listR2GameFoldersViaS3 above). manifest.json
-   turns "N slow authenticated R2 API calls" into "1 fast plain HTTPS
-   GET" through Cloudflare's CDN, regardless of N.
-
-   Falls back to listR2GameFoldersViaS3 (slow but always-correct) if
-   the manifest is missing, unreadable, or yields nothing for this
-   prefix -- so this can never make things worse than before, only
-   faster once the manifest is available (next sync run after this
-   ships).                                                            */
-let manifestCache = null; // { data, expires }
-const MANIFEST_CACHE_TTL_MS = parseInt(process.env.MANIFEST_CACHE_TTL_MS || String(30 * 1000), 10);
-
-function fetchManifest() {
-  return new Promise((resolve, reject) => {
-    if (!R2_PUBLIC_DOMAIN) return reject(new Error('R2_PUBLIC_DOMAIN not set'));
-    const req = https.get(
-      {
-        hostname: R2_PUBLIC_DOMAIN,
-        path: '/manifest.json',
-        agent: httpsAgent,
-        headers: { 'user-agent': 'red-portal-server' },
-      },
-      res => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          return reject(new Error(`manifest.json returned HTTP ${res.statusCode}`));
-        }
-        const chunks = [];
-        res.on('data', c => chunks.push(c));
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')));
-          } catch (e) {
-            reject(new Error(`manifest.json is not valid JSON: ${e.message}`));
-          }
-        });
-      }
-    );
-    req.on('error', reject);
-    req.setTimeout(8000, () => {
-      req.destroy();
-      reject(new Error('manifest.json fetch timed out'));
-    });
-  });
-}
-
-async function getManifest() {
-  const now = Date.now();
-  if (manifestCache && manifestCache.expires > now) return manifestCache.data;
-  const data = await fetchManifest();
-  manifestCache = { data, expires: now + MANIFEST_CACHE_TTL_MS };
-  return data;
-}
-
-/* Same { folder, name, href }[] shape as listR2GameFoldersViaS3, but
-   computed purely from the already-fetched manifest keys in memory --
-   no network calls at all. */
-function buildGameListFromManifest(topPrefix, manifest) {
-  const byFolder = new Map(); // folder -> [{ subPath, depth }, ...]
-
-  for (const relPath of Object.keys(manifest)) {
-    if (!relPath.startsWith(topPrefix)) continue;
-    const rest = relPath.slice(topPrefix.length);
-    const slashIdx = rest.indexOf('/');
-    if (slashIdx === -1) continue; // stray file directly under the prefix
-    const folder  = rest.slice(0, slashIdx);
-    const subPath = rest.slice(slashIdx + 1);
-    if (!/index\.html?$/i.test(subPath)) continue;
-    if (!byFolder.has(folder)) byFolder.set(folder, []);
-    byFolder.get(folder).push({ subPath, depth: subPath.split('/').length });
-  }
-
   const overrides = getGameOverrides();
   const results = [];
+
   for (const [folder, candidates] of byFolder.entries()) {
     candidates.sort((a, b) => a.depth - b.depth || a.subPath.localeCompare(b.subPath));
     const chosen = candidates[0];
+
+    if (candidates.length > 1 && candidates[1].depth === chosen.depth) {
+      console.warn(
+        `  ⚠  Ambiguous index.html under ${topPrefix}${folder}/ -- picked "${chosen.subPath}" ` +
+        `out of ${candidates.length} candidates at the shallowest depth. ` +
+        `Add an entry to game-overrides.json if this picked the wrong one.`
+      );
+    }
+
     const override = overrides[folder] || {};
     const name = override.name || folder.replace(/-/g, ' ');
     const relPath = override.path || chosen.subPath;
-    results.push({ folder, name, href: `${topPrefix}${folder}/${relPath}` });
+
+    results.push({
+      folder,
+      name,
+      href: `${topPrefix}${folder}/${relPath}`,
+    });
   }
+
   results.sort((a, b) => a.name.localeCompare(b.name));
   return results;
-}
-
-async function listR2GameFolders(topPrefix) {
-  // Fast path: manifest.json (see comment above)
-  try {
-    const manifest = await getManifest();
-    const results = buildGameListFromManifest(topPrefix, manifest);
-    if (results.length) return results;
-    console.warn(`  ⚠  manifest.json had no entries under ${topPrefix} -- falling back to live R2 listing.`);
-  } catch (e) {
-    console.warn(`  ⚠  manifest.json fast path unavailable (${e.message}) -- falling back to live R2 listing.`);
-  }
-  // Slow-but-authoritative fallback: live two-phase R2 listing.
-  return listR2GameFoldersViaS3(topPrefix);
 }
 
 /* List files directly under a prefix (no delimiter -- flat listing),
@@ -373,14 +212,222 @@ async function listR2Files(prefix, extRegex) {
   return files;
 }
 
+/* List ROM entries under Emulation/. Two ways to place a ROM:
+     - Emulation/<Console>/<file>  -- explicit: <Console> must exactly match
+       a key in cores.json, and that's the console used, no detection needed.
+     - Emulation/<file>            -- flat: console is auto-detected from the
+       file's own extension (or, for a .zip, from the extension of the file
+       INSIDE the archive -- see detectConsoleForZip below), via
+       extensions.json. This is the normal drop-it-in-and-go path.
+   A console/extension that can't be resolved either way still lists the ROM
+   (so nothing silently disappears), just with core: null -- the player page
+   shows a "couldn't determine the console" placeholder for those instead of
+   erroring.                                                                */
+let _emulatorCores = null;
+function getEmulatorCores() {
+  if (_emulatorCores) return _emulatorCores;
+  try {
+    const raw = fs.readFileSync(path.join(STATIC, 'assets/emulator/cores.json'), 'utf8');
+    _emulatorCores = JSON.parse(raw);
+  } catch {
+    _emulatorCores = {};
+  }
+  return _emulatorCores;
+}
+
+let _emulatorExtensions = null;
+function getEmulatorExtensions() {
+  if (_emulatorExtensions) return _emulatorExtensions;
+  try {
+    const raw = fs.readFileSync(path.join(STATIC, 'assets/emulator/extensions.json'), 'utf8');
+    _emulatorExtensions = JSON.parse(raw);
+  } catch {
+    _emulatorExtensions = {};
+  }
+  return _emulatorExtensions;
+}
+
+function fileExtension(name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name);
+  return m ? m[1].toLowerCase() : '';
+}
+
+// Junk that can legitimately sit alongside a ROM inside its .zip -- never
+// the actual game file, so skipped when picking which entry to detect from.
+const ZIP_JUNK_EXTENSIONS = new Set([
+  'txt', 'nfo', 'diz', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'ico',
+  'url', 'md', 'pdf', 'doc', 'docx', 'ini', 'db', 'ds_store',
+]);
+
+/* Minimal, dependency-free ZIP central-directory reader -- just enough to
+   list filenames, never decompresses/reads actual file content. Reads the
+   END of the object via an S3 suffix-range request (no need to know the
+   file's size up front), finds the End Of Central Directory record (EOCD,
+   signature 0x06054b50), then walks the Central Directory File Headers
+   (signature 0x02014b50) it points to. If the central directory turns out
+   to start before the tail window this first fetch covered (rare -- would
+   need many entries in one zip, not the norm for a single-ROM archive), a
+   second targeted range request fetches exactly that span. Zip64 (>4GB
+   archives or >65535 entries -- never the case for a ROM zip) isn't
+   supported; detection just gracefully gives up (returns null) rather than
+   misreading it. */
+const EOCD_SIG = 0x06054b50;
+const CDFH_SIG = 0x02014b50;
+const ZIP_TAIL_BYTES = 2 * 1024 * 1024; // comfortably covers EOCD + central directory for a handful of entries
+
+async function fetchR2Range(key, rangeHeader) {
+  const client = getS3Client();
+  const { GetObjectCommand } = require('@aws-sdk/client-s3');
+  const resp = await client.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key, Range: rangeHeader }));
+  const chunks = [];
+  for await (const chunk of resp.Body) chunks.push(chunk);
+  return { buf: Buffer.concat(chunks), contentRange: resp.ContentRange || '' };
+}
+
+function findEocd(buf) {
+  // Scan backward -- EOCD can be followed by a variable-length comment, so
+  // it isn't necessarily the very last 22 bytes.
+  for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 65535; i--) {
+    if (buf.readUInt32LE(i) === EOCD_SIG) return i;
+  }
+  return -1;
+}
+
+/* @returns {string|null} the extension of the first non-junk, non-directory
+   file found inside the zip, or null if it can't be determined. */
+async function detectConsoleForZip(key) {
+  try {
+    const tail = await fetchR2Range(key, `bytes=-${ZIP_TAIL_BYTES}`);
+    let buf = tail.buf;
+    // "bytes N-M/TOTAL" -- how far into the real file this tail chunk starts.
+    const totalMatch = /\/(\d+)$/.exec(tail.contentRange);
+    const fileSize = totalMatch ? parseInt(totalMatch[1], 10) : buf.length;
+    const tailStartInFile = fileSize - buf.length;
+
+    const eocdIdx = findEocd(buf);
+    if (eocdIdx === -1) return null; // not a normal zip, or comment > 65535 bytes -- give up cleanly
+
+    const totalEntries    = buf.readUInt16LE(eocdIdx + 10);
+    const cdSize           = buf.readUInt32LE(eocdIdx + 12);
+    const cdOffsetInFile    = buf.readUInt32LE(eocdIdx + 16);
+    if (totalEntries === 0 || cdOffsetInFile === 0xffffffff || cdSize === 0xffffffff) return null; // zip64 sentinel or empty archive
+
+    let cdBuf;
+    if (cdOffsetInFile >= tailStartInFile) {
+      // Central directory is already inside the tail chunk we fetched.
+      cdBuf = buf.subarray(cdOffsetInFile - tailStartInFile, cdOffsetInFile - tailStartInFile + cdSize);
+    } else {
+      // Rare: more entries than our tail window covers. One more targeted fetch.
+      const extra = await fetchR2Range(key, `bytes=${cdOffsetInFile}-${cdOffsetInFile + cdSize - 1}`);
+      cdBuf = extra.buf;
+    }
+
+    let offset = 0;
+    for (let n = 0; n < totalEntries && offset + 46 <= cdBuf.length; n++) {
+      if (cdBuf.readUInt32LE(offset) !== CDFH_SIG) break; // corrupt/unexpected -- stop rather than misread
+      const nameLen  = cdBuf.readUInt16LE(offset + 28);
+      const extraLen = cdBuf.readUInt16LE(offset + 30);
+      const commentLen = cdBuf.readUInt16LE(offset + 32);
+      const externalAttrs = cdBuf.readUInt32LE(offset + 38);
+      const name = cdBuf.toString('utf8', offset + 46, offset + 46 + nameLen);
+
+      const isDir = name.endsWith('/') || ((externalAttrs >>> 16) & 0o40000) !== 0;
+      const ext = fileExtension(name);
+      if (!isDir && ext && !ZIP_JUNK_EXTENSIONS.has(ext)) return ext;
+
+      offset += 46 + nameLen + extraLen + commentLen;
+    }
+    return null;
+  } catch (e) {
+    console.warn(`  ⚠  Couldn't inspect zip "${key}" for console detection:`, e.message);
+    return null;
+  }
+}
+
+/* Run `fn` over `items` with at most `limit` in flight at once -- caps how
+   many concurrent range-request round trips a large ROM collection fires
+   at R2 during one listing. */
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+async function listR2EmulationEntries() {
+  const client = getS3Client();
+  if (!client) return [];
+  const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
+  const topPrefix = 'Emulation/';
+  const cores = getEmulatorCores();
+  const extensions = getEmulatorExtensions();
+
+  const raw = []; // { key, folder|null, file }
+  let continuationToken;
+  do {
+    const cmd = new ListObjectsV2Command({
+      Bucket: R2_BUCKET,
+      Prefix: topPrefix,
+      ContinuationToken: continuationToken,
+    });
+    const resp = await client.send(cmd);
+    for (const obj of resp.Contents || []) {
+      const rest = obj.Key.slice(topPrefix.length); // "Some Game.zip" or "NES/Some Game.zip"
+      if (!rest || rest.endsWith('/')) continue; // the prefix "directory marker" object itself, if any
+      const slashIdx = rest.indexOf('/');
+      if (slashIdx === -1) {
+        raw.push({ key: obj.Key, folder: null, file: rest }); // flat -- auto-detect
+      } else {
+        const folder = rest.slice(0, slashIdx);
+        const file = rest.slice(slashIdx + 1);
+        if (!file || file.includes('/')) continue; // only one level deep supported
+        raw.push({ key: obj.Key, folder, file });
+      }
+    }
+    continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
+  } while (continuationToken);
+
+  const entries = await mapWithConcurrency(raw, 6, async item => {
+    let consoleName;
+    if (item.folder && cores[item.folder]) {
+      consoleName = item.folder; // explicit override -- trusted as-is, no detection
+    } else {
+      const ext = fileExtension(item.file);
+      const detectedExt = ext === 'zip' ? await detectConsoleForZip(item.key) : ext;
+      consoleName = detectedExt ? (extensions[detectedExt] || (cores[detectedExt] ? detectedExt : null)) : null;
+      // Fall back to a literal folder name even if it's not a recognized
+      // console (a typo'd folder still beats silently dropping the ROM).
+      if (!consoleName && item.folder) consoleName = item.folder;
+    }
+
+    return {
+      console: consoleName || 'Unsorted',
+      file: item.file,
+      name: item.file.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+      core: (consoleName && cores[consoleName]) || null,
+      romPath: item.key,
+    };
+  });
+
+  entries.sort((a, b) => a.console.localeCompare(b.console) || a.name.localeCompare(b.name));
+  return entries;
+}
+
 /* Simple in-memory cache so every page load doesn't hit R2's API --
    a new game folder or movie shows up within CACHE_TTL_MS of the next
-   request after it's uploaded. Short TTLs here + the client-side
-   auto-refresh polling in index.html (see renderGameGrid) together mean
-   a freshly-synced game shows up in the browser within seconds, with no
-   manual page reload needed — not just "next time the site boots up".  */
-const CACHE_TTL_MS_GAMES  = parseInt(process.env.GAMES_CACHE_TTL_MS  || String(15 * 1000), 10);  // 15s
-const CACHE_TTL_MS_MOVIES = parseInt(process.env.MOVIES_CACHE_TTL_MS || String(15 * 1000), 10);  // 15s
+   request after it's uploaded, which comfortably satisfies "shows up
+   next time the site boots up or reloads". Games/Testing get a longer
+   TTL since the full recursive listing is heavier than the flat
+   Movies listing.                                                     */
+const CACHE_TTL_MS_GAMES     = 5 * 60 * 1000;  // 5 minutes
+const CACHE_TTL_MS_MOVIES    = 60 * 1000;      // 1 minute
+const CACHE_TTL_MS_EMULATION = 5 * 60 * 1000;  // 5 minutes -- same shape of listing as Games/Testing
 const listCache = new Map(); // key -> { data, expires }
 
 async function cachedList(key, ttlMs, fetcher) {
@@ -677,8 +724,8 @@ function serveStatic(req, res, filePath, isR2Backed) {
 }
 
 /* ── Build a fully-qualified absolute origin from the incoming request ──
-   Every href handed back by /api/games, /api/testing, and /api/movies is
-   a complete absolute URL (https://redportal.dpdns.org/Games/...), never
+   Every href handed back by /api/games, /api/testing, /api/movies, and
+   /api/emulation is a complete absolute URL (https://redportal.dpdns.org/Games/...), never
    a bare relative path -- relative paths were breaking asset loading in
    some games once opened as a blob: URL with an injected <base> tag,
    since root-relative asset references (src="/assets/x.png") resolve
@@ -719,17 +766,13 @@ async function handleMovies(req, res) {
 
 /* ── GET /api/games and /api/testing — auto-populate the game grids
    straight from what's actually in the R2 bucket. Dropping a new game
-   folder into Games/ or Testing/ shows up here automatically -- no
-   index.html edits, no redeploy. See listR2GameFolders() for how the
-   entry-point index.html is located inside each folder. Pass
-   ?fresh=1 to bypass the cache for this one request (handy right
-   after a sync to confirm a new game is actually visible).           */
-async function handleGameList(req, res, topPrefix, bypassCache) {
+   folder into Games/ or Testing/ and reloading Red Portal is all it
+   takes -- no index.html edits, no redeploy. See listR2GameFolders()
+   for how the entry-point index.html is located inside each folder.  */
+async function handleGameList(req, res, topPrefix) {
   try {
     const origin = getRequestOrigin(req);
-    const games = bypassCache
-      ? await listR2GameFolders(topPrefix)
-      : await cachedList(topPrefix, CACHE_TTL_MS_GAMES, () => listR2GameFolders(topPrefix));
+    const games = await cachedList(topPrefix, CACHE_TTL_MS_GAMES, () => listR2GameFolders(topPrefix));
     const absolute = games.map(g => ({ ...g, href: `${origin}/${g.href}` })); // relative -> absolute
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
     res.end(JSON.stringify(absolute));
@@ -740,79 +783,33 @@ async function handleGameList(req, res, topPrefix, bypassCache) {
   }
 }
 
-/* ── GET /api/r2-status — diagnostic for the R2 auto-discovery feature.
-   Hit this directly in the browser to see, at a glance:
-     - which of the 5 required env vars are actually set on this
-       deployment (booleans only -- never the secret value itself)
-     - whether a real S3 client could be constructed
-     - whether a real listing call against Games/, Testing/, and
-       Movies/ succeeds, how long it took, and (on failure) the exact
-       error message -- e.g. an auth/permission error from R2, a
-       missing @aws-sdk/client-s3 install, wrong account/bucket, etc.
-   This makes the "why is nothing showing up" question answerable
-   without needing to dig through Render's server logs.                */
-async function handleR2Status(req, res) {
-  const configured = {
-    R2_ACCOUNT_ID:             !!R2_ACCOUNT_ID,
-    R2_LIST_ACCESS_KEY_ID:     !!R2_LIST_ACCESS_KEY_ID,
-    R2_LIST_SECRET_ACCESS_KEY: !!R2_LIST_SECRET_ACCESS_KEY,
-    R2_BUCKET:                 !!R2_BUCKET,
-    R2_PUBLIC_DOMAIN:          !!R2_PUBLIC_DOMAIN,
-  };
-
-  const result = { configured, clientCreated: false };
-
-  // ── manifest.json fast path — this is what /api/games and
-  // /api/testing actually use day-to-day. Reported first/separately
-  // since it's the thing that matters for "why is the grid slow/empty".
-  const manifestStarted = Date.now();
+/* ── GET /api/emulation — auto-populate the Emulation grid from ROM files
+   sitting under Emulation/<Console>/ on R2. Each entry's href points at the
+   generic EmulatorJS player (assets/emulator/player.html) with the ROM's
+   own R2 URL, looked-up core, and display name passed as query params --
+   see listR2EmulationEntries() and assets/emulator/cores.json.            */
+async function handleEmulationList(req, res) {
   try {
-    const manifest = await fetchManifest(); // bypass cache -- always a fresh check here
-    const keys = Object.keys(manifest);
-    result['manifest.json'] = {
-      ok: true,
-      ms: Date.now() - manifestStarted,
-      totalEntries: keys.length,
-      gamesEntries: keys.filter(k => k.startsWith('Games/')).length,
-      testingEntries: keys.filter(k => k.startsWith('Testing/')).length,
-    };
+    const origin = getRequestOrigin(req);
+    const entries = await cachedList('emulation', CACHE_TTL_MS_EMULATION, listR2EmulationEntries);
+    const withHref = entries.map(e => {
+      const romUrl = `${origin}/${e.romPath}`;
+      const params = new url.URLSearchParams({ rom: romUrl, name: e.name });
+      if (e.core) params.set('core', e.core);
+      return {
+        console: e.console,
+        name: e.name,
+        core: e.core,
+        href: `${origin}/assets/emulator/player.html?${params.toString()}`,
+      };
+    });
+    res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+    res.end(JSON.stringify(withHref));
   } catch (e) {
-    result['manifest.json'] = { ok: false, error: e.message, ms: Date.now() - manifestStarted };
+    console.error('  ✗  /api/emulation R2 listing error:', e.message);
+    res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+    res.end('[]'); // fail soft -- an empty Emulation tab beats a broken page
   }
-
-  // ── Live R2 API listing — the slower fallback path. Only worth
-  // exercising here if the manifest fast path failed above; skip it
-  // when the manifest's already working to avoid an unnecessarily
-  // slow diagnostic call now that we know these can take seconds each.
-  let client;
-  try {
-    client = getS3Client();
-    result.clientCreated = !!client;
-  } catch (e) {
-    result.clientCreationError = e.message; // e.g. @aws-sdk/client-s3 not installed
-  }
-
-  if (client && !result['manifest.json'].ok) {
-    for (const prefix of ['Games/', 'Testing/']) {
-      const started = Date.now();
-      try {
-        const folders = await listTopLevelFolders(prefix);
-        result[prefix] = { ok: true, folderCount: folders.length, ms: Date.now() - started, sample: folders.slice(0, 8), note: 'live S3 listing (manifest fast path failed)' };
-      } catch (e) {
-        result[prefix] = { ok: false, error: e.message, ms: Date.now() - started };
-      }
-    }
-    const started = Date.now();
-    try {
-      const movies = await listR2Files('Movies/', VIDEO_RE);
-      result['Movies/'] = { ok: true, fileCount: movies.length, ms: Date.now() - started };
-    } catch (e) {
-      result['Movies/'] = { ok: false, error: e.message, ms: Date.now() - started };
-    }
-  }
-
-  res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
-  res.end(JSON.stringify(result, null, 2));
 }
 
 
@@ -844,19 +841,17 @@ const server = http.createServer((req, res) => {
     return handleMovies(req, res);
   }
 
-  /* ── /api/r2-status — diagnostic: are the R2 listing env vars set,
-     and does a real listing call actually succeed?                  */
-  if (pathname === '/api/r2-status') {
-    return handleR2Status(req, res);
-  }
-
-  /* ── /api/games, /api/testing — auto-populated game grid data ──
-     ?fresh=1 bypasses the cache for this one request.                */
+  /* ── /api/games, /api/testing — auto-populated game grid data ── */
   if (pathname === '/api/games') {
-    return handleGameList(req, res, 'Games/', parsed.query.fresh === '1');
+    return handleGameList(req, res, 'Games/');
   }
   if (pathname === '/api/testing') {
-    return handleGameList(req, res, 'Testing/', parsed.query.fresh === '1');
+    return handleGameList(req, res, 'Testing/');
+  }
+
+  /* ── /api/emulation — auto-populated Emulation grid data ── */
+  if (pathname === '/api/emulation') {
+    return handleEmulationList(req, res);
   }
 
   /* ── Games/Testing → redirect straight to R2 ──

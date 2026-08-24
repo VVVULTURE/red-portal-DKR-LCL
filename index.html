@@ -1368,6 +1368,7 @@ footer {
     <a href="#movies"                data-section="movies">🎞️ Movies</a>
     <a href="#credits"               data-section="credits">🏆 Credits</a>
     <a href="#Testing"               data-section="Testing">🧪 Testing</a>
+    <a href="#emulation"             data-section="emulation">🕹️ Emulation</a>
   </nav>
 
   <!-- Settings (theme slide-out) trigger -->
@@ -1527,6 +1528,20 @@ footer {
         <a class="game-btn" href="Testing/Buckshot-Roulette/index.html" target="_blank" rel="noopener noreferrer"><span>Buckshot Roulette</span></a>
         <a class="game-btn" href="Testing/FNF-Friday-Night-Funkin/index.html" target="_blank" rel="noopener noreferrer"><span>FNF, Friday Night Funkin</span></a>
         <a class="game-btn" href="Testing/Plauge-Inc-Webport/index.html" target="_blank" rel="noopener noreferrer"><span>Plauge Inc, Webport</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── EMULATION ── -->
+  <section id="emulation" class="section" aria-label="Emulation">
+    <div class="section-inner">
+      <h2>🕹️ Emulation</h2>
+      <div class="card grid-card">
+        <!-- Cards are generated at runtime from whatever ROM files live under
+             Emulation/<Console>/ (served via /api/emulation). Drop a ROM in and
+             reload — it launches in the EmulatorJS player automatically. See
+             assets/emulator/cores.json for the console → emulator core mapping. -->
+        <div class="games-grid" id="emulationGrid"></div>
       </div>
     </div>
   </section>
@@ -2050,7 +2065,7 @@ footer {
   /* ═══════════════════════════════════════════════════════════════
      4. NAVIGATION
   ═══════════════════════════════════════════════════════════════ */
-  const SEARCH_SECTIONS = new Set(['games', 'Testing']);
+  const SEARCH_SECTIONS = new Set(['games', 'Testing', 'emulation']);
   const $searchBarWrap = document.getElementById('search-bar-wrap');
 
   // Cache these NodeLists once — avoids a full DOM walk on every nav click
@@ -2123,7 +2138,7 @@ footer {
   // grid update, and reapplies whatever's currently typed in the box.
   let _searchCache = [];
   function rebuildSearchCache() {
-    _searchCache = [...document.querySelectorAll('#gamesGrid .game-btn, #preLaunchGrid .game-btn')]
+    _searchCache = [...document.querySelectorAll('#gamesGrid .game-btn, #preLaunchGrid .game-btn, #emulationGrid .game-btn')]
       .map(btn => ({ el: btn, name: (btn.querySelector('span')?.textContent || '').toLowerCase() }));
     applySearchFilter();
   }
@@ -2243,8 +2258,8 @@ footer {
       .catch(() => triggerOpen(abs.href));   // genuine fetch/network failure -- nothing to blob at all
   }
 
-  // Delegate game grid clicks (both grids share one handler each)
-  ['gamesGrid', 'preLaunchGrid'].forEach(id => {
+  // Delegate game grid clicks (all grids share one handler each)
+  ['gamesGrid', 'preLaunchGrid', 'emulationGrid'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', e => {
@@ -2270,7 +2285,7 @@ footer {
      (from the polling loop), the same diffing logic applies: if the
      list is empty we simply skip re-rendering rather than wiping out
      whatever's already showing.                                      */
-  function renderGameGrid(containerId, apiPath) {
+  function renderGameGrid(containerId, apiPath, emptyMessage) {
     const $grid = document.getElementById(containerId);
     if (!$grid) return;
     if ($grid.dataset.fetching === '1') return; // previous request for this grid hasn't finished -- don't stack another on top
@@ -2281,7 +2296,17 @@ footer {
     fetch(apiPath)
       .then(r => (r.ok ? r.json() : []))
       .then(list => {
-        if (!Array.isArray(list) || !list.length) return;
+        if (!Array.isArray(list) || !list.length) {
+          // A grid with static fallback content (Games/Testing) should never
+          // get blanked out by a genuinely-empty API response -- only grids
+          // that opt in with an emptyMessage (nothing to fall back to,
+          // e.g. Emulation before any ROMs exist) show one here.
+          if (emptyMessage && $grid.dataset.lastRendered !== '__empty__') {
+            $grid.dataset.lastRendered = '__empty__';
+            $grid.innerHTML = emptyMessage;
+          }
+          return;
+        }
         const html = list.map(g => `
         <a class="game-btn" href="${escHtml(g.href)}" target="_blank" rel="noopener noreferrer"><span>${escHtml(g.name)}</span></a>`).join('');
         if (html === $grid.dataset.lastRendered) return; // nothing changed -- skip the DOM churn
@@ -2293,9 +2318,16 @@ footer {
       .finally(() => { $grid.dataset.fetching = '0'; });
   }
 
+  const EMULATION_EMPTY_MSG =
+    '<p style="color:var(--text-muted);font-size:.9rem;line-height:1.65;">' +
+    'No ROMs yet. Drop a ROM file into <code>Emulation/&lt;Console&gt;/</code> ' +
+    '(e.g. <code>Emulation/SNES/</code>) and reload — it will appear here ' +
+    'automatically and launch in the built-in emulator.</p>';
+
   function refreshAllGrids() {
     renderGameGrid('gamesGrid', '/api/games');
     renderGameGrid('preLaunchGrid', '/api/testing');
+    renderGameGrid('emulationGrid', '/api/emulation', EMULATION_EMPTY_MSG);
   }
   refreshAllGrids();
 
