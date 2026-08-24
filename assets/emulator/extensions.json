@@ -1,0 +1,45 @@
+{
+  "_comment": "File extension (no dot, lowercase) -> console name, matching the keys in cores.json. Used to auto-detect which console a ROM belongs to from its filename alone -- for a .zip, the file INSIDE the archive is inspected instead (see detectConsoleForFile in server.js). Deliberately excludes ambiguous extensions shared by multiple consoles (.bin, .iso, .cue, .img, .chd) -- a ROM using one of those needs to sit in an explicit Emulation/<Console>/ folder instead of being auto-detected.",
+
+  "nes": "NES",
+  "fds": "NES",
+  "unf": "NES",
+  "unif": "NES",
+
+  "sfc": "SNES",
+  "smc": "SNES",
+  "fig": "SNES",
+  "swc": "SNES",
+
+  "n64": "N64",
+  "z64": "N64",
+  "v64": "N64",
+
+  "nds": "NDS",
+
+  "gb": "GB",
+  "gbc": "GBC",
+  "gba": "GBA",
+
+  "md": "Genesis",
+  "gen": "Genesis",
+  "smd": "Genesis",
+
+  "32x": "Sega32X",
+  "gg": "GameGear",
+  "sms": "SegaMasterSystem",
+
+  "a26": "Atari2600",
+  "a52": "Atari5200",
+  "a78": "Atari7800",
+  "lnx": "AtariLynx",
+  "j64": "AtariJaguar",
+
+  "col": "ColecoVision",
+  "vb": "VirtualBoy",
+
+  "d64": "Commodore64",
+  "t64": "Commodore64",
+  "prg": "Commodore64",
+  "adf": "CommodoreAmiga"
+}

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Red Portal — Emulator</title>
+<style>
+  * , *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; }
+  #placeholder {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    color: #ddd; font-family: system-ui, sans-serif; text-align: center; padding: 24px;
+  }
+  #placeholder h1 { font-size: 1.3rem; font-weight: 600; }
+  #placeholder p { color: #999; max-width: 32rem; line-height: 1.5; }
+  #placeholder code {
+    background: #1a1a1a; padding: 2px 6px; border-radius: 4px; font-size: 0.85em;
+  }
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+<div id="placeholder" hidden>
+  <h1 id="placeholderTitle">No ROM linked</h1>
+  <p id="placeholderText">
+    This player is generic plumbing for Red Portal's Emulation tab. Open it with
+    <code>?rom=&lt;ROM URL&gt;&amp;core=&lt;EJS core&gt;&amp;name=&lt;game name&gt;</code>
+    in the query string to actually load a game — see <code>assets/emulator/cores.json</code>
+    for the console → core mapping.
+  </p>
+</div>
+
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var romUrl = params.get('rom');
+  var core   = params.get('core');
+  var name   = params.get('name') || 'Game';
+
+  if (!romUrl) {
+    document.getElementById('placeholder').hidden = false;
+    return;
+  }
+
+  if (!core) {
+    // ROM found, but /api/emulation couldn't work out which console it's
+    // for (unrecognized extension, or an inspected .zip that didn't match
+    // anything in extensions.json) -- different problem from "nothing
+    // linked at all", so a different message: this needs the ROM moved
+    // into an explicit Emulation/<Console>/ folder to fix.
+    document.getElementById('placeholderTitle').textContent = "Couldn't determine the console for this ROM";
+    document.getElementById('placeholderText').innerHTML =
+      'Red Portal couldn\'t auto-detect which system <strong>' + name.replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+      }) + '</strong> is for. Move it into an explicit ' +
+      '<code>Emulation/&lt;Console&gt;/</code> folder (see the console names in ' +
+      '<code>assets/emulator/cores.json</code>) instead of relying on auto-detection.';
+    document.getElementById('placeholder').hidden = false;
+    return;
+  }
+
+  document.title = name + ' — Red Portal';
+
+  window.EJS_player      = '#game';
+  window.EJS_gameUrl     = romUrl;
+  window.EJS_core        = core;
+  window.EJS_gameName    = name;
+  window.EJS_pathtodata  = 'https://cdn.emulatorjs.org/stable/data/';
+  window.EJS_startOnLoaded = true;
+
+  var loader = document.createElement('script');
+  loader.src = EJS_pathtodata + 'loader.js';
+  document.body.appendChild(loader);
+})();
+</script>
+
+</body>
+</html>
