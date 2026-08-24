@@ -35,7 +35,12 @@
 
 <script>
 (function () {
-  var params = new URLSearchParams(location.search);
+  // openGame() (index.html) opens this page as a blob: URL for the stealth
+  // tab-hiding behavior shared by every game type -- a blob has no query
+  // string of its own, so it stashes the real one on window.__REAL_SEARCH__
+  // before handing off. Fall back to location.search for a direct/plain
+  // navigation to this file (e.g. testing it standalone).
+  var params = new URLSearchParams(window.__REAL_SEARCH__ || location.search);
   var romUrl = params.get('rom');
   var core   = params.get('core');
   var name   = params.get('name') || 'Game';
