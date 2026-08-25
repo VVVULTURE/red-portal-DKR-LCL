@@ -552,7 +552,11 @@ async function listR2EmulationEntries() {
     return {
       console: consoleName || 'Unsorted',
       file: item.file,
-      name: item.file.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+      // Collapse whitespace AFTER swapping -/_ for spaces -- a raw ROM
+      // filename like "007 - GoldenEye.zip" already has a space on each
+      // side of its dash, so swapping the dash alone first would leave
+      // "007   GoldenEye" (three spaces) as the display name.
+      name: item.file.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim(),
       core: (consoleName && cores[consoleName]) || null,
       romPath: item.key,
     };
