@@ -387,6 +387,14 @@ function fileExtension(name) {
   return m ? m[1].toLowerCase() : '';
 }
 
+/* Same "spaces -> dashes, strip illegal chars" convention as
+   local-deploy.js's toLocalFolderName -- used to turn an Emulation entry's
+   display name into the same kind of key Games/Testing folder names
+   already are, so assets/icons/<key>.png works the same way everywhere. */
+function toIconSlug(name) {
+  return String(name).trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '-');
+}
+
 // Junk that can legitimately sit alongside a ROM inside its .zip -- never
 // the actual game file, so skipped when picking which entry to detect from.
 const ZIP_JUNK_EXTENSIONS = new Set([
@@ -915,7 +923,10 @@ async function handleGameList(req, res, topPrefix, fresh) {
     const games = fresh
       ? await listR2GameFolders(topPrefix)
       : await cachedList(topPrefix, CACHE_TTL_MS_GAMES, () => listR2GameFolders(topPrefix));
-    const absolute = games.map(g => ({ ...g, href: `${origin}/${g.href}` })); // relative -> absolute
+    // icon: the folder name IS the stable per-game key already (exact match
+    // to assets/icons/<folder>.png) -- see the icon-loading comment in
+    // index.html for how a missing file degrades gracefully.
+    const absolute = games.map(g => ({ ...g, icon: g.folder, href: `${origin}/${g.href}` })); // relative -> absolute
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
     res.end(JSON.stringify(absolute));
   } catch (e) {
@@ -942,6 +953,12 @@ async function handleEmulationList(req, res) {
         console: e.console,
         name: e.name,
         core: e.core,
+        // No folder name to key off of here (a ROM is one file, not a
+        // folder) -- slug the display name the same way Games/Testing
+        // folder names are derived, so assets/icons/<slug>.png also just
+        // works for a ROM whose display name happens to match a browser
+        // version of the same game elsewhere on the site.
+        icon: toIconSlug(e.name),
         href: `${origin}/assets/emulator/player.html?${params.toString()}`,
       };
     });

@@ -720,6 +720,7 @@ h2::after {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   text-align: center;
   word-break: break-word;
   overflow: hidden;
@@ -768,6 +769,21 @@ h2::after {
 }
 
 .game-btn span { position: relative; z-index: 1; }
+
+/* Per-game icon, drawn by hand and dropped into assets/icons/ on R2 --
+   see ICON_BASE_URL / renderGameGrid in the script below. Sits above the
+   hover-fill overlay like the label text does; onerror removes the <img>
+   entirely for a game with no icon uploaded yet, so the button just looks
+   like it always did (no broken-image glyph, no layout gap). */
+.game-icon {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
 
 .game-btn:hover {
   will-change: transform;
@@ -2294,6 +2310,13 @@ footer {
      (from the polling loop), the same diffing logic applies: if the
      list is empty we simply skip re-rendering rather than wiping out
      whatever's already showing.                                      */
+  // Per-game icons: assets/icons/<g.icon>.png on R2. g.icon is the game's
+  // stable folder-name key for Games/Testing, or a name-derived slug for
+  // Emulation entries (see server.js). Purely additive -- a game with no
+  // icon uploaded yet just 404s and removes itself (onerror handler in the
+  // template below), no icon shown, same look as before this feature.
+  const ICON_BASE_URL = 'https://assets.redportal.dpdns.org/assets/icons/';
+
   function renderGameGrid(containerId, apiPath, emptyMessage) {
     const $grid = document.getElementById(containerId);
     if (!$grid) return;
@@ -2317,7 +2340,7 @@ footer {
           return;
         }
         const html = list.map(g => `
-        <a class="game-btn" href="${escHtml(g.href)}" target="_blank" rel="noopener noreferrer"><span>${escHtml(g.name)}</span></a>`).join('');
+        <a class="game-btn" href="${escHtml(g.href)}" target="_blank" rel="noopener noreferrer">${g.icon ? `<img class="game-icon" src="${ICON_BASE_URL}${escHtml(encodeURIComponent(g.icon))}.png" alt="" loading="lazy" onerror="this.remove()">` : ''}<span>${escHtml(g.name)}</span></a>`).join('');
         if (html === $grid.dataset.lastRendered) return; // nothing changed -- skip the DOM churn
         $grid.dataset.lastRendered = html;
         $grid.innerHTML = html;
