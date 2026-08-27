@@ -1388,10 +1388,12 @@ footer {
     <a href="#movies"                data-section="movies">🎞️ Movies</a>
     <a href="#credits"               data-section="credits">🏆 Credits</a>
     <a href="#Testing"               data-section="Testing">🧪 Testing</a>
-    <!-- Hidden until Ctrl+Shift+K is pressed (see script.js) -- deliberately
-         no data-section here: this is a real top-level navigation away from
-         the SPA to /redproxy, not an in-page section switch. -->
-    <a href="/redproxy" id="navRedProxy" class="nav-hidden">🕵️ Red Proxy</a>
+    <!-- Hidden until Ctrl+Shift+K is pressed (see script.js). Renders as an
+         in-page section like Games/Testing -- the href is just a fallback
+         for right-click-open-in-new-tab / accessibility; the actual click
+         is intercepted by the normal nav delegation below since it has
+         data-section, same as every other tab. -->
+    <a href="/redproxy" id="navRedProxy" class="nav-hidden" data-section="redproxy">🕵️ Red Proxy</a>
   </nav>
 
   <!-- Settings (theme slide-out) trigger -->
@@ -1739,6 +1741,24 @@ footer {
           />
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ── RED PROXY (hidden — see the Ctrl+Shift+K reveal in script.js) ──
+       Renders inside an iframe that fills this section, same as any other
+       tab -- the page you're actually on (and its URL) never changes, only
+       what's inside this one section does. Scramjet/bare-mux are loaded
+       lazily, only the first time this tab is actually opened. -->
+  <section id="redproxy" class="section" aria-label="Red Proxy">
+    <div class="section-inner" style="height:100%;display:flex;flex-direction:column;">
+      <h2>🕵️ Red Proxy</h2>
+      <form id="rp-form" style="display:flex;gap:.5rem;margin-bottom:.75rem;">
+        <input id="rp-address" type="text" placeholder="Search or enter a URL" autocomplete="off"
+          style="flex:1;padding:.6rem .85rem;font-size:1rem;background:var(--bg-elevated,#1a0d0d);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;">
+        <button type="submit" class="btn-primary" style="padding:.6rem 1.2rem;">Go</button>
+      </form>
+      <div id="rp-status" style="min-height:1.2em;font-size:.85rem;color:var(--text-muted);margin-bottom:.5rem;"></div>
+      <div id="rp-frame-wrap" style="flex:1;position:relative;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;min-height:50vh;"></div>
     </div>
   </section>
 
@@ -2146,6 +2166,91 @@ footer {
       store.set(REDPROXY_REVEAL_KEY, nowRevealed ? '1' : '0');
     }
   });
+
+  /* ── Red Proxy — renders inside an iframe filling this section ──────
+     Deliberately NOT a top-level navigation: Red Portal itself can be
+     opened inside a blob: tab, and navigating the real top-level window
+     away from that loses the blob wrapper entirely and changes the URL
+     bar. Rendering in an iframe scoped to this one section keeps the
+     outer page (and its URL) exactly as it was, same as every other tab.
+     Scramjet/bare-mux are loaded lazily -- only the first time this tab
+     is actually opened, so nobody else pays for it. */
+  let _rpScriptsLoaded = null;
+  function loadRedProxyScripts() {
+    if (_rpScriptsLoaded) return _rpScriptsLoaded;
+    const srcs = ['/scram/scramjet.all.js', '/baremux/index.js', '/redproxy/register-sw.js', '/redproxy/search.js'];
+    _rpScriptsLoaded = srcs.reduce((p, src) => p.then(() => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.head.appendChild(s);
+    })), Promise.resolve());
+    return _rpScriptsLoaded;
+  }
+
+  let _rpScramjet = null;
+  let _rpConnection = null;
+
+  function rpSetStatus(msg, isError) {
+    const el = document.getElementById('rp-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = isError ? '#ff6060' : '';
+  }
+
+  const $rpForm = document.getElementById('rp-form');
+  if ($rpForm) {
+    $rpForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const input = document.getElementById('rp-address');
+      const val = input.value.trim();
+      if (!val) return;
+
+      rpSetStatus('Connecting…');
+      try {
+        await loadRedProxyScripts();
+
+        // scramjet.init() MUST run before the service worker is ever
+        // touched -- doing it after (as this briefly did) hits a real bug:
+        // "Failed to execute 'transaction' on 'IDBDatabase': One of the
+        // specified object stores was not found", as an unhandled
+        // rejection this try/catch can't even see, and the frame never
+        // renders anything.
+        if (!_rpScramjet) {
+          const { ScramjetController } = $scramjetLoadController();
+          _rpScramjet = new ScramjetController({
+            files: {
+              wasm: '/scram/scramjet.wasm.wasm',
+              all:  '/scram/scramjet.all.js',
+              sync: '/scram/scramjet.sync.js',
+            },
+          });
+          _rpScramjet.init();
+        }
+
+        await registerRedProxySW();
+
+        if (!_rpConnection) _rpConnection = new BareMux.BareMuxConnection('/baremux/worker.js');
+        const wispUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/wisp/';
+        if ((await _rpConnection.getTransport()) !== '/libcurl/index.mjs') {
+          await _rpConnection.setTransport('/libcurl/index.mjs', [{ websocket: wispUrl }]);
+        }
+
+        const target = toTargetUrl(val, 'https://www.google.com/search?q=%s');
+        const frame = _rpScramjet.createFrame();
+        frame.frame.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;';
+        const wrap = document.getElementById('rp-frame-wrap');
+        wrap.innerHTML = '';
+        wrap.appendChild(frame.frame);
+        frame.go(target);
+        rpSetStatus('');
+      } catch (err) {
+        console.error('[redproxy]', err);
+        rpSetStatus('Failed: ' + err.message, true);
+      }
+    });
+  }
 
   /** Replay card reveal animations with per-card stagger delay.
    *  Uses a single container reflow instead of one per button, avoiding

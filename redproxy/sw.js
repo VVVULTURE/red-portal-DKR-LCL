@@ -5,8 +5,32 @@
  * Scramjet's own codec rewrites proxied URLs to live under its internal
  * prefix at the site root, not under /redproxy/). It only actually acts on
  * requests that fall under that internal proxy prefix; everything else
- * (Red Portal itself, Games/, Testing/, assets/) passes straight through
- * via a plain fetch(), unchanged from having no service worker at all.
+ * (Red Portal itself, Games/, Testing/, assets/) is meant to pass straight
+ * through via a plain fetch(), unchanged from having no service worker at
+ * all -- see the same-origin bypass below for why that's now guaranteed
+ * rather than just intended.
+ *
+ * REGRESSION FIXED HERE: the previous version always called
+ * scramjet.loadConfig()/route() first, for every single request on the
+ * ENTIRE origin (root scope), before ever falling back to a plain fetch.
+ * Once this worker got installed (which happens the first time anyone
+ * opens the Red Proxy tab), it stayed registered and kept intercepting
+ * every future page load site-wide -- and a cross-origin request (e.g. a
+ * game icon on assets.redportal.dpdns.org) made scramjet.route()/fetch()
+ * reject instead of ever reaching the fallback, which the browser then
+ * reported as the resource failing to load outright. That's why icons,
+ * the logo, and other R2-hosted assets could vanish sitewide after
+ * someone merely tried the proxy once -- confirmed by reproducing it
+ * locally: reload the main page after using the proxy once, and every
+ * cross-origin asset request comes back net::ERR_FAILED.
+ *
+ * Fix: bail out to a plain fetch() immediately -- before touching
+ * Scramjet at all -- for anything that isn't even on this origin.
+ * Scramjet's own rewritten proxy URLs always live under THIS origin (the
+ * /scramjet/<encoded> prefix), so this can never intercept a real proxy
+ * target; it only guarantees ordinary site traffic never touches Scramjet.
+ * The try/catch around the same-origin path is defense in depth, in case
+ * loadConfig()/route()/fetch() ever throws for some other reason.
  */
 importScripts('/scram/scramjet.all.js');
 
@@ -14,9 +38,23 @@ const { ScramjetServiceWorker } = $scramjetLoadWorker();
 const scramjet = new ScramjetServiceWorker();
 
 async function handleRequest(event) {
-  await scramjet.loadConfig();
-  if (scramjet.route(event)) {
-    return scramjet.fetch(event);
+  let url;
+  try { url = new URL(event.request.url); } catch { return fetch(event.request); }
+
+  // Fast, synchronous bypass -- never let cross-origin site traffic (game
+  // icons, tutorial videos, anything on assets.redportal.dpdns.org, etc.)
+  // anywhere near Scramjet's async config/routing logic.
+  if (url.origin !== self.location.origin) {
+    return fetch(event.request);
+  }
+
+  try {
+    await scramjet.loadConfig();
+    if (scramjet.route(event)) {
+      return await scramjet.fetch(event);
+    }
+  } catch (err) {
+    console.error('[redproxy sw] scramjet error, falling back to plain fetch:', err);
   }
   return fetch(event.request);
 }
@@ -24,3 +62,10 @@ async function handleRequest(event) {
 self.addEventListener('fetch', (event) => {
   event.respondWith(handleRequest(event));
 });
+
+// Take over immediately on install/activate instead of waiting for every
+// tab running the OLD (buggy) worker to close first -- so once the fix
+// above is deployed, it actually reaches people who already have the
+// broken worker registered from before, on their very next visit.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
