@@ -20,6 +20,21 @@ const path  = require('path');
 const fs    = require('fs');
 const url   = require('url');
 
+/* ── Red Proxy (Scramjet, in-process) ─────────────────────────────
+   Everything the proxy needs runs inside THIS same process/server --
+   no separate deployment, no third-party proxy or wisp service. See the
+   /redproxy router branch and the 'upgrade' handler further down. */
+const { scramjetPath } = require('@mercuryworkshop/scramjet/path');
+const { baremuxPath }  = require('@mercuryworkshop/bare-mux/node');
+const { libcurlPath }  = require('@mercuryworkshop/libcurl-transport');
+const { server: wispServer, logging: wispLogging } = require('@mercuryworkshop/wisp-js/server');
+
+wispLogging.set_level(wispLogging.NONE);
+Object.assign(wispServer.options, {
+  allow_udp_streams: false,
+  dns_servers: ['1.1.1.3', '1.0.0.3'], // Cloudflare's malware-blocking resolver
+});
+
 /* ── Config ────────────────────────────────────────────────────── */
 const PORT       = parseInt(process.env.PORT || '3001', 10);
 const STATIC     = __dirname;           // serve files from the same folder as server.js
@@ -487,8 +502,79 @@ async function detectConsoleForZip(key) {
   }
 }
 
+/* .7z and .rar console detection -- NOT full structural parsers like the
+   ZIP one above. 7z's own metadata block can itself be LZMA-compressed
+   (kEncodedHeader) before it even gets to listing filenames, and correctly
+   walking the rest of the format (PackInfo/UnpackInfo/SubStreamsInfo, each
+   with their own nested property-ID encoding) to reach the names when it
+   ISN'T compressed is a big enough chunk of the spec that a hand-rolled
+   version risks subtly MISreading it -- worse than not detecting at all,
+   since a wrong console guess sends EmulatorJS off to load a ROM with the
+   wrong core. RAR's block format is proprietary and versioned (RAR4 vs
+   RAR5 differ). Full parsers for either aren't worth the risk for what
+   this is actually for: a best-effort console hint.
+
+   Instead: fetch a bounded, honest window of raw bytes and scan for a
+   recognizable ROM filename in either encoding these formats actually use --
+   plain ASCII/UTF-8 (RAR, and 7z when NOT header-compressed), or UTF-16LE
+   (7z's kName property, which is literally "each char followed by a 0x00
+   byte" for anything in the ASCII range). Stripping 0x00 bytes from the
+   buffer collapses UTF-16LE ASCII text back to plain text, so ONE scan
+   pattern works for both encodings without decoding either archive format.
+   Requires a several-character run of plausible filename characters before
+   a recognized extension -- specific enough that a coincidental match in
+   random compressed binary data is very unlikely. Finds nothing (header
+   IS compressed, or genuinely can't find a match) -> returns null, same
+   clean give-up as the ZIP path above.                                    */
+const FILENAME_SCAN_RE = /[a-z0-9][a-z0-9 _.,()!\[\]&'-]{2,80}\.([a-z0-9]{1,6})(?:\x00|[^a-z0-9]|$)/gi;
+
+function scanBufferForRomExtension(buf, knownExtensions) {
+  const denulled = Buffer.from([...buf].filter(b => b !== 0)).toString('latin1');
+  FILENAME_SCAN_RE.lastIndex = 0;
+  let m;
+  while ((m = FILENAME_SCAN_RE.exec(denulled)) !== null) {
+    const ext = m[1].toLowerCase();
+    if (knownExtensions.has(ext)) return ext;
+  }
+  return null;
+}
+
+const SEVENZIP_SIG = Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]);
+const SEVENZIP_MAX_HEADER_BYTES = 8 * 1024 * 1024; // sanity cap -- a legitimate ROM archive's metadata is nowhere near this
+
+async function detectConsoleForSevenZip(key, knownExtensions) {
+  try {
+    const sig = await fetchR2Range(key, 'bytes=0-31'); // fixed 32-byte signature header
+    if (sig.buf.length < 32 || !sig.buf.subarray(0, 6).equals(SEVENZIP_SIG)) return null;
+
+    const nextHeaderOffset = Number(sig.buf.readBigUInt64LE(12));
+    const nextHeaderSize   = Number(sig.buf.readBigUInt64LE(20));
+    if (!Number.isFinite(nextHeaderOffset) || !Number.isFinite(nextHeaderSize)) return null;
+    if (nextHeaderSize <= 0 || nextHeaderSize > SEVENZIP_MAX_HEADER_BYTES) return null;
+
+    const headerStart = 32 + nextHeaderOffset;
+    const header = await fetchR2Range(key, `bytes=${headerStart}-${headerStart + nextHeaderSize - 1}`);
+    return scanBufferForRomExtension(header.buf, knownExtensions);
+  } catch (e) {
+    console.warn(`  ⚠  Couldn't inspect 7z "${key}" for console detection:`, e.message);
+    return null;
+  }
+}
+
+const RAR_SCAN_WINDOW_BYTES = 256 * 1024; // filenames sit in header blocks near the start for a simple, few-file ROM archive
+
+async function detectConsoleForRar(key, knownExtensions) {
+  try {
+    const head = await fetchR2Range(key, `bytes=0-${RAR_SCAN_WINDOW_BYTES - 1}`);
+    return scanBufferForRomExtension(head.buf, knownExtensions);
+  } catch (e) {
+    console.warn(`  ⚠  Couldn't inspect rar "${key}" for console detection:`, e.message);
+    return null;
+  }
+}
+
 /* Run `fn` over `items` with at most `limit` in flight at once -- caps how
-   many concurrent range-request round trips a large ROM collection fires
+   many concurrent round trips a large ROM collection fires
    at R2 during one listing. */
 async function mapWithConcurrency(items, limit, fn) {
   const results = new Array(items.length);
@@ -510,6 +596,7 @@ async function listR2EmulationEntries() {
   const topPrefix = 'Emulation/';
   const cores = getEmulatorCores();
   const extensions = getEmulatorExtensions();
+  const knownExtensions = new Set(Object.keys(extensions));
 
   const raw = []; // { key, folder|null, file }
   let continuationToken;
@@ -542,7 +629,11 @@ async function listR2EmulationEntries() {
       consoleName = item.folder; // explicit override -- trusted as-is, no detection
     } else {
       const ext = fileExtension(item.file);
-      const detectedExt = ext === 'zip' ? await detectConsoleForZip(item.key) : ext;
+      let detectedExt;
+      if (ext === 'zip') detectedExt = await detectConsoleForZip(item.key);
+      else if (ext === '7z') detectedExt = await detectConsoleForSevenZip(item.key, knownExtensions);
+      else if (ext === 'rar') detectedExt = await detectConsoleForRar(item.key, knownExtensions);
+      else detectedExt = ext;
       consoleName = detectedExt ? (extensions[detectedExt] || (cores[detectedExt] ? detectedExt : null)) : null;
       // Fall back to a literal folder name even if it's not a recognized
       // console (a typo'd folder still beats silently dropping the ROM).
@@ -687,6 +778,51 @@ const CORS_HEADERS = Object.freeze({
   'content-security-policy':       '',
   'vary':                          'Origin',
 });
+
+/* ── Red Proxy headers ─────────────────────────────────────────────
+   Cross-Origin-Embedder-Policy:require-corp is what lets Scramjet's WASM
+   transport reach full (cross-origin-isolated) speed -- but applying it
+   SITE-WIDE would break loading images/audio/video from the R2 asset
+   domain (assets.redportal.dpdns.org doesn't send a matching CORP header),
+   which is exactly the CORS_HEADERS above are permissive on purpose for.
+   So this header set is scoped ONLY to /scram/, /libcurl/, /baremux/, and
+   /redproxy/ -- everything else on the site keeps CORS_HEADERS untouched. */
+const SCRAMJET_HEADERS = Object.freeze({
+  'cross-origin-opener-policy':   'same-origin',
+  'cross-origin-embedder-policy': 'require-corp',
+});
+
+/* Serve one static file from an arbitrary root dir (not necessarily
+   STATIC) with SCRAMJET_HEADERS applied -- used for scramjet/libcurl/
+   baremux's own bundled files and the /redproxy/ page itself. */
+function serveScramjetAsset(req, res, rootDir, relPath, extraHeaders) {
+  const decoded = (() => { try { return decodeURIComponent(relPath); } catch { return relPath; } })();
+  const safeRel = path.normalize(decoded).replace(/^(\.\.[\\/])+/, '');
+  const filePath = path.join(rootDir, safeRel);
+
+  if (!filePath.startsWith(rootDir)) {
+    res.writeHead(403, { 'content-type': 'text/plain', ...SCRAMJET_HEADERS });
+    return res.end('Forbidden');
+  }
+
+  fs.stat(filePath, (err, stat) => {
+    if (err || !stat.isFile()) {
+      res.writeHead(404, { 'content-type': 'text/plain', ...SCRAMJET_HEADERS });
+      return res.end('Not found');
+    }
+    const ext  = path.extname(filePath).toLowerCase();
+    const mime = MIME[ext] || 'application/octet-stream';
+    res.writeHead(200, {
+      'content-type':   mime,
+      'content-length': stat.size,
+      'cache-control':  ext === '.html' ? 'no-cache' : 'public, max-age=3600',
+      ...SCRAMJET_HEADERS,
+      ...extraHeaders,
+    });
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(filePath).pipe(res);
+  });
+}
 
 /* ── Parse a JSON request body ─────────────────────────────────── */
 function parseJsonBody(req) {
@@ -1061,7 +1197,7 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
-  /* ── /health — Koyeb / load-balancer health check ── */
+  /* ── /health — Render / load-balancer health check ── */
   if (pathname === '/health' || pathname === '/healthz') {
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
     return res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
@@ -1098,6 +1234,32 @@ const server = http.createServer((req, res) => {
     return handleEmulationList(req, res);
   }
 
+  /* ── Red Proxy — Scramjet's own bundled files + the /redproxy/ page ──
+     All served from this same process (see requires + SCRAMJET_HEADERS
+     above). Checked before the R2 redirect/static blocks below so it can
+     never collide with a real Games/Testing/asset path. ── */
+  if (pathname.startsWith('/scram/')) {
+    return serveScramjetAsset(req, res, scramjetPath, pathname.slice('/scram/'.length));
+  }
+  if (pathname.startsWith('/libcurl/')) {
+    return serveScramjetAsset(req, res, libcurlPath, pathname.slice('/libcurl/'.length));
+  }
+  if (pathname.startsWith('/baremux/')) {
+    return serveScramjetAsset(req, res, baremuxPath, pathname.slice('/baremux/'.length));
+  }
+  if (pathname === '/redproxy' || pathname === '/redproxy/' || pathname.startsWith('/redproxy/')) {
+    const rel = (pathname === '/redproxy' || pathname === '/redproxy/')
+      ? 'index.html'
+      : pathname.slice('/redproxy/'.length) || 'index.html';
+    // sw.js needs to control the WHOLE site (scope "/"), not just its own
+    // "/redproxy/" directory -- Scramjet's codec rewrites proxied URLs to
+    // live at the site root, not under this folder. A script's own
+    // directory is the max scope a browser allows by default, so this
+    // header is required to explicitly widen it. See register-sw.js.
+    const extra = rel === 'sw.js' ? { 'service-worker-allowed': '/' } : undefined;
+    return serveScramjetAsset(req, res, path.join(STATIC, 'redproxy'), rel, extra);
+  }
+
   /* ── Games/Testing → redirect straight to R2 ──
      Placed before static file serving so it takes priority regardless
      of whether a local copy still happens to exist on disk. Query
@@ -1127,6 +1289,19 @@ const server = http.createServer((req, res) => {
   }
 
   serveStatic(req, res, filePath, !!r2BackedPrefix(pathname));
+});
+
+/* ── Red Proxy — wisp WebSocket endpoint ─────────────────────────
+   No 'upgrade' handler existed here before this -- Node's default
+   behavior for an unhandled upgrade request is to just close the
+   connection (see the Node http docs), which is exactly what the
+   else-branch below still does for anything other than /wisp/, so this
+   is purely additive and can't regress any existing behavior. ── */
+server.on('upgrade', (req, socket, head) => {
+  if (req.url === '/wisp/' || req.url.startsWith('/wisp/')) {
+    return wispServer.routeRequest(req, socket, head);
+  }
+  socket.destroy();
 });
 
 /* ── Self-ping ── keeps the Render deployment awake ──────────────
@@ -1171,6 +1346,7 @@ server.listen(PORT, '0.0.0.0', () => {
   } else {
     console.log('  ⚠   R2_PUBLIC_DOMAIN not set — Games/Testing will be served from local disk.');
   }
+  console.log(`  🕵  Red Proxy:   http://localhost:${PORT}/redproxy  (wisp on this same server, /wisp/)`);
   if (SELF_PING_ENABLED) {
     console.log(`  🔁  Self-ping: ${SELF_PING_URL} every ${Math.round(SELF_PING_INTERVAL_MS / 60000)} min`);
     setInterval(selfPing, SELF_PING_INTERVAL_MS);

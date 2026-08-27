@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Red Proxy</title>
+<style>
+  * , *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #0a0a0a; color: #ffdddd;
+    font-family: 'Rajdhani', 'Segoe UI', sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .wrap { width: min(92vw, 480px); text-align: center; }
+  h1 {
+    font-size: 2rem; letter-spacing: .08em; text-transform: uppercase;
+    color: #FF2020; margin-bottom: .35rem;
+    text-shadow: 0 0 18px rgba(255,32,32,.44), 0 0 40px rgba(255,32,32,.19);
+  }
+  p.desc { color: #a88; font-size: .9rem; margin-bottom: 1.5rem; line-height: 1.5; }
+  form { display: flex; gap: .5rem; }
+  input[type="text"] {
+    flex: 1; padding: .7rem .9rem; font-size: 1rem;
+    background: #1a0d0d; border: 1px solid rgba(255,32,32,.35); border-radius: 6px;
+    color: #ffdddd; outline: none;
+  }
+  input[type="text"]:focus { border-color: #FF2020; }
+  button {
+    padding: .7rem 1.3rem; font-size: 1rem; font-weight: 600;
+    background: #FF2020; color: #0a0a0a; border: none; border-radius: 6px;
+    cursor: pointer;
+  }
+  button:hover { background: #ff4040; }
+  #rp-status { margin-top: 1rem; min-height: 1.2em; font-size: .85rem; color: #a88; }
+  #rp-status.err { color: #ff6060; }
+  a.back {
+    display: inline-block; margin-top: 2rem; color: #a88; text-decoration: none; font-size: .85rem;
+  }
+  a.back:hover { color: #ffdddd; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Red Proxy</h1>
+    <p class="desc">Type a URL, or just search — everything runs on Red Portal's own server.</p>
+    <form id="rp-form">
+      <input id="rp-address" type="text" placeholder="Search or enter a URL" autocomplete="off" autofocus>
+      <button type="submit">Go</button>
+    </form>
+    <div id="rp-status"></div>
+    <a class="back" href="/">&larr; Back to Red Portal</a>
+  </div>
+
+  <script src="/scram/scramjet.all.js"></script>
+  <script src="/baremux/index.js"></script>
+  <script src="/redproxy/register-sw.js"></script>
+  <script src="/redproxy/search.js"></script>
+  <script src="/redproxy/app.js"></script>
+</body>
+</html>

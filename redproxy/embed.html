@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Loading…</title>
+<style>
+  html, body { width: 100%; height: 100%; margin: 0; background: #000; overflow: hidden; }
+  #msg {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #ffdddd; font-family: sans-serif; font-size: .9rem; text-align: center; padding: 1rem;
+  }
+</style>
+</head>
+<body>
+<div id="msg">Loading…</div>
+
+<script src="/scram/scramjet.all.js"></script>
+<script src="/baremux/index.js"></script>
+<script src="/redproxy/register-sw.js"></script>
+<script>
+'use strict';
+/**
+ * Bridge page used as an <iframe> target when a game/site refuses to be
+ * embedded directly (X-Frame-Options/CSP) -- see templates.js in the
+ * automation bot. This document lives INSIDE that iframe; it registers the
+ * Red Proxy service worker, computes the target's rewritten Scramjet URL,
+ * then replaces its own location with it. No second/nested iframe is added
+ * -- the same document that the bot's iframe already points at just
+ * navigates itself to the real (rewritten) target.
+ */
+// scramjet.init() must run before the service worker is touched at all --
+// calling it AFTER registerRedProxySW() (as this used to) hits a real bug:
+// "Failed to execute 'transaction' on 'IDBDatabase': One of the specified
+// object stores was not found", then the actual proxied navigation fails
+// outright. Matches the working order in app.js: init() first, at script
+// load, unconditionally; the service worker is only touched later.
+const { ScramjetController } = $scramjetLoadController();
+const scramjet = new ScramjetController({
+  files: {
+    wasm: '/scram/scramjet.wasm.wasm',
+    all:  '/scram/scramjet.all.js',
+    sync: '/scram/scramjet.sync.js',
+  },
+});
+scramjet.init();
+
+(async () => {
+  const msg = document.getElementById('msg');
+  const params = new URLSearchParams(location.search);
+  const target = params.get('url');
+  if (!target) {
+    msg.textContent = 'No ?url= given.';
+    return;
+  }
+
+  try {
+    await registerRedProxySW();
+
+    const connection = new BareMux.BareMuxConnection('/baremux/worker.js');
+    const wispUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/wisp/';
+    if ((await connection.getTransport()) !== '/libcurl/index.mjs') {
+      await connection.setTransport('/libcurl/index.mjs', [{ websocket: wispUrl }]);
+    }
+
+    const frame = scramjet.createFrame();
+    const encoded = frame.go(target) || frame.frame.src;
+    location.replace(encoded);
+  } catch (err) {
+    console.error('[redproxy/embed]', err);
+    msg.textContent = 'Could not load this through the proxy: ' + err.message;
+  }
+})();
+</script>
+</body>
+</html>

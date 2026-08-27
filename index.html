@@ -256,6 +256,9 @@ nav {
   min-width: 0;
 }
 
+/* Revealed only after Ctrl+Shift+K -- see script.js. */
+nav a.nav-hidden { display: none; }
+
 nav a {
   position: relative;
   background: transparent;
@@ -1385,6 +1388,10 @@ footer {
     <a href="#movies"                data-section="movies">🎞️ Movies</a>
     <a href="#credits"               data-section="credits">🏆 Credits</a>
     <a href="#Testing"               data-section="Testing">🧪 Testing</a>
+    <!-- Hidden until Ctrl+Shift+K is pressed (see script.js) -- deliberately
+         no data-section here: this is a real top-level navigation away from
+         the SPA to /redproxy, not an in-page section switch. -->
+    <a href="/redproxy" id="navRedProxy" class="nav-hidden">🕵️ Red Proxy</a>
   </nav>
 
   <!-- Settings (theme slide-out) trigger -->
@@ -2121,6 +2128,25 @@ footer {
     showSection('games', gamesLink);
   });
 
+  /* ── Red Proxy — hidden nav tab ──────────────────────────────────
+     Ctrl+Shift+K reveals (or hides again) the "Red Proxy" nav item.
+     Revealed state is remembered per-browser via localStorage, so once
+     someone finds it, it stays visible for them without re-pressing the
+     shortcut every visit. */
+  const REDPROXY_REVEAL_KEY = 'rp_redproxy_revealed';
+  const $navRedProxy = document.getElementById('navRedProxy');
+  if ($navRedProxy && store.get(REDPROXY_REVEAL_KEY) === '1') {
+    $navRedProxy.classList.remove('nav-hidden');
+  }
+  document.addEventListener('keydown', e => {
+    if (!$navRedProxy) return;
+    if (e.ctrlKey && e.shiftKey && (e.key === 'K' || e.key === 'k')) {
+      e.preventDefault();
+      const nowRevealed = $navRedProxy.classList.toggle('nav-hidden') === false;
+      store.set(REDPROXY_REVEAL_KEY, nowRevealed ? '1' : '0');
+    }
+  });
+
   /** Replay card reveal animations with per-card stagger delay.
    *  Uses a single container reflow instead of one per button, avoiding
    *  the O(n) layout-thrash that the previous void btn.offsetWidth loop caused.
@@ -2443,7 +2469,7 @@ footer {
     };
 
     try {
-      const res  = await fetch('https://assets.redportal.dpdns.org/api/request', {
+      const res  = await fetch('https://redportal.dpdns.org/api/request', {
         method:  'POST',
         headers: { 'content-type': 'application/json' },
         body:    JSON.stringify(payload),

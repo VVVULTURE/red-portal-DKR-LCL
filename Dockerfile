@@ -1,7 +1,7 @@
-# ── Red Portal — Koyeb Docker Deployment ──────────────────────────
+# ── Red Portal — Render Docker Deployment ──────────────────────────
 # Uses Node.js Alpine (small image, fast cold-start).
-# Koyeb injects $PORT automatically; server.js already reads it.
-# Default port is 3000 (standard Node.js default).
+# Render injects $PORT automatically; server.js already reads it.
+# Default port is 3001 if $PORT isn't set (see server.js).
 #
 # ⚠  Create a  .dockerignore  alongside this file to keep the image lean:
 #
@@ -48,13 +48,13 @@ COPY --chown=redportal:redportal . .
 # Drop to the unprivileged user for the lifetime of the container
 USER redportal
 
-# Koyeb sets PORT at runtime; expose the local default here.
+# Render sets PORT at runtime; expose the local default here.
 EXPOSE 3001
 
-# Health check — Koyeb polls /health every 30 s.
+# Health check — Render polls /health periodically.
 # wget is built into BusyBox on Alpine — no extra package needed.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:${PORT:-3001}/health || exit 1
 
-# server.js reads process.env.PORT — Koyeb supplies it at runtime.
+# server.js reads process.env.PORT — Render supplies it at runtime.
 CMD ["node", "server.js"]
