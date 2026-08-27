@@ -20,7 +20,7 @@ const path  = require('path');
 const fs    = require('fs');
 const url   = require('url');
 
-/* ── Red Proxy (Scramjet, in-process) ─────────────────────────────
+/* ── Red Proxy (Scramjet, in-process) ──────────────────────────────
    Everything the proxy needs runs inside THIS same process/server --
    no separate deployment, no third-party proxy or wisp service. See the
    /redproxy router branch and the 'upgrade' handler further down. */
@@ -35,7 +35,7 @@ Object.assign(wispServer.options, {
   dns_servers: ['1.1.1.3', '1.0.0.3'], // Cloudflare's malware-blocking resolver
 });
 
-/* ── Config ────────────────────────────────────────────────────── */
+/* ── Config ─────────────────────────────────────────────── */
 const PORT       = parseInt(process.env.PORT || '3001', 10);
 const STATIC     = __dirname;           // serve files from the same folder as server.js
 // URL of the bot's HTTP listener, e.g. http://192.168.1.50:3000/post-request
@@ -43,7 +43,7 @@ const BOT_URL    = process.env.BOT_URL    || 'https://boneless-parcel-reputable.
 // Shared secret — must match BOT_SECRET in bot.js to prevent unauthorized posts
 const BOT_SECRET = process.env.BOT_SECRET || '0fffaa699dd1422eac9cf419d1649f8ff9b346d9594450c51987ba8a61003ba3';
 
-/* ── R2-backed folders ──────────────────────────────────────────
+/* ── R2-backed folders ──────────────────────────────────────
    Games/ and Testing/ now live in Cloudflare R2, not on this server's
    disk (see .dockerignore — they're excluded from the Docker build
    entirely). Any request whose path starts with one of these prefixes
@@ -80,7 +80,7 @@ function r2BackedPrefix(pathname) {
   return null;
 }
 
-/* ── R2 bucket listing (auto-discovery) ────────────────────────────
+/* ── R2 bucket listing (auto-discovery) ──────────────────────────
    Separate, READ-ONLY credentials from the ones sync_to_r2.py uses to
    write -- this API token should be scoped to "Object Read" only in
    the Cloudflare dashboard. Used to auto-populate the Games/Testing
@@ -115,7 +115,7 @@ function getS3Client() {
 }
 
 /* ── Locate each game's real index.html and build the auto-populated
-   grid data ──────────────────────────────────────────────────────
+   grid data ────────────────────────────────────────────────────
    THREE layers, fastest first:
 
      0. manifest.json fast path -- sync_to_r2.py writes a relative-path ->
@@ -680,7 +680,7 @@ async function cachedList(key, ttlMs, fetcher) {
   return data;
 }
 
-/* ── Optional overrides ────────────────────────────────────────────
+/* ── Optional overrides ──────────────────────────────────────────
    game-overrides.json (repo root, optional) can override either the
    display name, the exact index.html path, or both, per folder:
      { "Baldis-Basics-Plus": { "name": "Baldi's Basics Plus",
@@ -705,7 +705,7 @@ function getGameOverrides() {
 const httpAgent  = new http.Agent ({ keepAlive: true, maxSockets: 64 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 64 });
 
-/* ── MIME map for static files ─────────────────────────────────── */
+/* ── MIME map for static files ──────────────────────────── */
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.htm':  'text/html; charset=utf-8',
@@ -738,7 +738,7 @@ const MIME = {
   '.wasm': 'application/wasm',
 };
 
-/* ── Cache-Control values per extension ────────────────────────── */
+/* ── Cache-Control values per extension ───────────────────── */
 const CACHE_CONTROL = {
   '.html': 'no-cache',                         // always revalidate HTML
   '.htm':  'no-cache',
@@ -761,7 +761,7 @@ const CACHE_CONTROL = {
   '.otf':  'public, max-age=31536000',
 };
 
-/* ── CORS + framing headers ─────────────────────────────────────── *
+/* ── CORS + framing headers ──────────────────────── *
    Frozen constant instead of a function-per-request. Previously a new
    object was allocated and GC'd on every request. Spread it with
    { ...CORS_HEADERS } when you need to add extra keys.               */
@@ -779,7 +779,7 @@ const CORS_HEADERS = Object.freeze({
   'vary':                          'Origin',
 });
 
-/* ── Red Proxy headers ─────────────────────────────────────────────
+/* ── Red Proxy headers ───────────────────────────────────────
    Cross-Origin-Embedder-Policy:require-corp is what lets Scramjet's WASM
    transport reach full (cross-origin-isolated) speed -- but applying it
    SITE-WIDE would break loading images/audio/video from the R2 asset
@@ -794,20 +794,29 @@ const SCRAMJET_HEADERS = Object.freeze({
 
 /* Serve one static file from an arbitrary root dir (not necessarily
    STATIC) with SCRAMJET_HEADERS applied -- used for scramjet/libcurl/
-   baremux's own bundled files and the /redproxy/ page itself. */
-function serveScramjetAsset(req, res, rootDir, relPath, extraHeaders) {
+   baremux's own bundled files and the /redproxy/ page itself.
+
+   `isolate` defaults to true (apply SCRAMJET_HEADERS) but MUST be passed
+   as false for sw.js specifically -- see the caller in the router for why:
+   a service worker's global scope inherits COEP/COOP from its OWN script
+   response, and since this one is registered at root scope ("/"), that
+   would make cross-origin-isolation apply to every request on the entire
+   site for as long as the worker stays registered, not just to whatever
+   page loaded it. */
+function serveScramjetAsset(req, res, rootDir, relPath, extraHeaders, isolate = true) {
   const decoded = (() => { try { return decodeURIComponent(relPath); } catch { return relPath; } })();
   const safeRel = path.normalize(decoded).replace(/^(\.\.[\\/])+/, '');
   const filePath = path.join(rootDir, safeRel);
+  const isolationHeaders = isolate ? SCRAMJET_HEADERS : {};
 
   if (!filePath.startsWith(rootDir)) {
-    res.writeHead(403, { 'content-type': 'text/plain', ...SCRAMJET_HEADERS });
+    res.writeHead(403, { 'content-type': 'text/plain', ...isolationHeaders });
     return res.end('Forbidden');
   }
 
   fs.stat(filePath, (err, stat) => {
     if (err || !stat.isFile()) {
-      res.writeHead(404, { 'content-type': 'text/plain', ...SCRAMJET_HEADERS });
+      res.writeHead(404, { 'content-type': 'text/plain', ...isolationHeaders });
       return res.end('Not found');
     }
     const ext  = path.extname(filePath).toLowerCase();
@@ -816,7 +825,7 @@ function serveScramjetAsset(req, res, rootDir, relPath, extraHeaders) {
       'content-type':   mime,
       'content-length': stat.size,
       'cache-control':  ext === '.html' ? 'no-cache' : 'public, max-age=3600',
-      ...SCRAMJET_HEADERS,
+      ...isolationHeaders,
       ...extraHeaders,
     });
     if (req.method === 'HEAD') return res.end();
@@ -824,7 +833,7 @@ function serveScramjetAsset(req, res, rootDir, relPath, extraHeaders) {
   });
 }
 
-/* ── Parse a JSON request body ─────────────────────────────────── */
+/* ── Parse a JSON request body ──────────────────────── */
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -837,7 +846,7 @@ function parseJsonBody(req) {
   });
 }
 
-/* ── Forward a request payload to the local bot ────────────────── */
+/* ── Forward a request payload to the local bot ────────────── */
 function forwardToBot(payload) {
   return new Promise((resolve, reject) => {
     const body    = JSON.stringify(payload);
@@ -873,7 +882,7 @@ function forwardToBot(payload) {
   });
 }
 
-/* ── Handle POST /api/request ──────────────────────────────────── */
+/* ── Handle POST /api/request ────────────────────── */
 async function handleGameRequest(req, res) {
   if (req.method !== 'POST') {
     res.writeHead(405, { 'content-type': 'application/json', ...CORS_HEADERS });
@@ -926,7 +935,7 @@ async function handleGameRequest(req, res) {
 }
 
 
-/* ── In-memory cache for index.html (the SPA shell) ────────────── *
+/* ── In-memory cache for index.html (the SPA shell) ────────── *
    index.html is read from disk once and kept in memory.  Every SPA
    fallback (404 → index.html) was previously a full fs.readFile call;
    now it's a Buffer copy — orders of magnitude faster under load.    */
@@ -1186,7 +1195,7 @@ async function handleR2Status(req, res) {
 
 
 
-/* ── Main request router ───────────────────────────────────────── */
+/* ── Main request router ──────────────────────── */
 const server = http.createServer((req, res) => {
   const parsed   = url.parse(req.url, true);
   const pathname = parsed.pathname;
@@ -1251,13 +1260,27 @@ const server = http.createServer((req, res) => {
     const rel = (pathname === '/redproxy' || pathname === '/redproxy/')
       ? 'index.html'
       : pathname.slice('/redproxy/'.length) || 'index.html';
+    const isSw = rel === 'sw.js';
     // sw.js needs to control the WHOLE site (scope "/"), not just its own
     // "/redproxy/" directory -- Scramjet's codec rewrites proxied URLs to
     // live at the site root, not under this folder. A script's own
     // directory is the max scope a browser allows by default, so this
     // header is required to explicitly widen it. See register-sw.js.
-    const extra = rel === 'sw.js' ? { 'service-worker-allowed': '/' } : undefined;
-    return serveScramjetAsset(req, res, path.join(STATIC, 'redproxy'), rel, extra);
+    const extra = isSw ? { 'service-worker-allowed': '/' } : undefined;
+    // sw.js must NOT get SCRAMJET_HEADERS (isolate: false) -- a service
+    // worker inherits COEP/COOP from its own script response, and at root
+    // scope that would cross-origin-isolate the ENTIRE SITE for as long as
+    // the worker stays registered. That in turn requires every resource
+    // the worker's own fetch() touches (including a plain passthrough
+    // fetch for, say, a game icon on assets.redportal.dpdns.org) to send a
+    // matching Cross-Origin-Resource-Policy header -- which R2 doesn't --
+    // so the browser blocks it. This is what was breaking every game icon
+    // and other R2-hosted asset site-wide after merely opening the Red
+    // Proxy tab once: confirmed by reproducing it locally (bisecting the
+    // proxy's init sequence step by step, isolating it to the moment the
+    // service worker registers) and by curling the header this file used
+    // to be served with.
+    return serveScramjetAsset(req, res, path.join(STATIC, 'redproxy'), rel, extra, !isSw);
   }
 
   /* ── Games/Testing → redirect straight to R2 ──
@@ -1291,7 +1314,7 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res, filePath, !!r2BackedPrefix(pathname));
 });
 
-/* ── Red Proxy — wisp WebSocket endpoint ─────────────────────────
+/* ── Red Proxy — wisp WebSocket endpoint ─────────────────
    No 'upgrade' handler existed here before this -- Node's default
    behavior for an unhandled upgrade request is to just close the
    connection (see the Node http docs), which is exactly what the
@@ -1327,9 +1350,9 @@ function selfPing() {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('');
-  console.log('  ╔══════════════════════════════════════════╗');
+  console.log('  ╔════════════════════════════════════════╗');
   console.log('  ║         Red Portal — Local Server        ║');
-  console.log('  ╚══════════════════════════════════════════╝');
+  console.log('  ╚════════════════════════════════════════╝');
   console.log('');
   console.log(`  🌐  Open:     http://localhost:${PORT}`);
   console.log(`  📨  Requests: http://localhost:${PORT}/api/request`);
