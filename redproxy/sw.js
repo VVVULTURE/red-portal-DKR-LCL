@@ -51,12 +51,50 @@ async function handleRequest(event) {
   try {
     await scramjet.loadConfig();
     if (scramjet.route(event)) {
-      return await scramjet.fetch(event);
+      return await fetchScramjetWithRetry(event);
     }
   } catch (err) {
     console.error('[redproxy sw] scramjet error, falling back to plain fetch:', err);
   }
   return fetch(event.request);
+}
+
+/**
+ * scramjet.fetch() ultimately calls into bare-mux's SharedWorker, which
+ * lazily constructs+inits the libcurl-transport BareTransport on the
+ * FIRST fetch/websocket message it ever processes (see bare-mux's
+ * worker.js: `s.ready || await s.init()`). That's a real, confirmed
+ * upstream ordering bug in @mercuryworkshop/libcurl-transport's own
+ * LibcurlClient.init(): it constructs `new libcurl.HTTPSession(...)`
+ * BEFORE checking whether the underlying WASM runtime has finished
+ * loading, and HTTPSession's constructor synchronously throws
+ * "wasm not loaded yet, please call libcurl.load_wasm first" if it
+ * hasn't -- instead of waiting first, the way the rest of that same
+ * init() function does. So the very first proxied request in this
+ * worker's lifetime can throw that error even though the WASM finishes
+ * loading correctly moments later (confirmed: it's a one-time,
+ * worker-lifetime `wasm_ready` flag internal to that module -- every
+ * request after the first successful one is unaffected).
+ *
+ * Rather than patch the vendored dependency directly (fragile across
+ * package updates), retry the SAME request a few times with a short
+ * delay -- by the second or third attempt the WASM has always finished
+ * loading in every test run. Only this specific, known-transient error
+ * is retried; anything else fails immediately.
+ */
+async function fetchScramjetWithRetry(event) {
+  const MAX_ATTEMPTS = 6;
+  const RETRY_DELAY_MS = 350;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await scramjet.fetch(event);
+    } catch (err) {
+      const isWasmRace = err && typeof err.message === 'string' && err.message.includes('wasm not loaded yet');
+      if (!isWasmRace || attempt === MAX_ATTEMPTS) throw err;
+      console.warn(`[redproxy sw] libcurl WASM not ready yet, retrying (attempt ${attempt}/${MAX_ATTEMPTS})`);
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    }
+  }
 }
 
 self.addEventListener('fetch', (event) => {
