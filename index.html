@@ -256,7 +256,7 @@ nav {
   min-width: 0;
 }
 
-/* Revealed only after typing "redproxy" -- see script.js. */
+/* Revealed only after Ctrl+Alt+Shift+R -- see script.js. */
 nav a.nav-hidden { display: none; }
 
 nav a {
@@ -1388,14 +1388,14 @@ footer {
     <a href="#movies"                data-section="movies">🎞️ Movies</a>
     <a href="#credits"               data-section="credits">🏆 Credits</a>
     <a href="#Testing"               data-section="Testing">🧪 Testing</a>
-    <!-- Hidden until the reveal gesture runs (see script.js -- typing
-         "redproxy" anywhere on the page, not Ctrl+Shift+K anymore; see the
-         comment on that listener for why). Deliberately has NO
-         data-section, so the generic nav-link delegation below skips it --
-         clicking it opens /redproxy as a real standalone tab (its own
-         click handler, also in script.js) instead of switching to an
-         in-page section. The href is a plain fallback for
-         right-click-open-in-new-tab / accessibility. -->
+    <!-- Hidden until Ctrl+Alt+Shift+R is pressed (see script.js -- and the
+         comment on that listener for why this combo specifically, and why
+         it isn't Ctrl+Shift+K anymore). Deliberately has NO data-section,
+         so the generic nav-link delegation below skips it -- clicking it
+         opens /redproxy as a real standalone tab (its own click handler,
+         also in script.js) instead of switching to an in-page section.
+         The href is a plain fallback for right-click-open-in-new-tab /
+         accessibility. -->
     <a href="/redproxy" id="navRedProxy" class="nav-hidden">🕵️ Red Proxy</a>
   </nav>
 
@@ -2138,23 +2138,27 @@ footer {
   });
 
   /* ── Red Proxy — hidden nav tab ──────────────────────────────────
-     Reveals (or hides again) the "Red Proxy" nav item by TYPING the word
-     "redproxy" anywhere on the page (not while focused in a text
-     input/textarea/contenteditable, so normal typing in the request form
-     etc. can't trigger it by coincidence).
+     Reveals (or hides again) the "Red Proxy" nav item via Ctrl+Alt+Shift+R.
 
-     This used to be Ctrl+Shift+K. Switched away from any Ctrl+Shift+<letter>
-     combo entirely: Firefox hard-reserves Ctrl+Shift+K at the browser-chrome
-     level for its own Web Console -- it intercepts the keypress before page
-     JS ever sees it, so no amount of code here could ever make that combo
-     work for a Firefox user (confirmed: this is exactly why it did nothing
-     when tested). Nearly every other Ctrl+Shift+<letter> combo is ALSO
-     claimed by Chrome and/or Firefox for something (bookmarks, incognito,
-     devtools, reload, history, screenshots...), so rather than keep
-     whack-a-moling letters against two browsers' reserved-shortcut tables,
-     this uses a typed sequence instead -- plain letter keys with no
-     modifiers are never intercepted by browser chrome, so it works
-     identically everywhere.
+     History: this was originally Ctrl+Shift+K, which did nothing for
+     Vaden -- Firefox hard-reserves that exact combo at the browser-chrome
+     level for its own Web Console, intercepting the keypress before page
+     JS ever sees it. Briefly switched to a typed sequence ("type
+     redproxy") to sidestep modifier-combo collisions entirely, but Vaden
+     asked for a real keyboard-shortcut chord instead. Picked
+     Ctrl+Alt+Shift+R (a TRIPLE-modifier combo, from a short list of
+     candidates Vaden chose between) specifically because no browser I'm
+     aware of reserves any Ctrl+Alt+Shift+<letter> chord for its own UI --
+     unlike Ctrl+Shift+<letter>, which collides with something in Chrome
+     and/or Firefox for nearly every letter (bookmarks, incognito,
+     devtools, reload, history, screenshots...).
+
+     Matches on e.code ('KeyR', the PHYSICAL key position) rather than
+     e.key (the character produced), so it isn't affected by keyboard
+     layout -- relevant because holding Ctrl+Alt is exactly what AltGr
+     sends on many European layouts, which can make e.key produce an
+     unexpected accented/special character instead of a plain "r" even
+     though the physical key pressed was R.
 
      Deliberately NOT persisted across sessions (no localStorage here) --
      this is meant to stay a real easter egg, re-found each visit rather
@@ -2162,18 +2166,10 @@ footer {
      The theme/wallpaper picker below is a SEPARATE key (THEME_KEY) and is
      unaffected -- that one is still meant to persist. */
   const $navRedProxy = document.getElementById('navRedProxy');
-  const REDPROXY_REVEAL_WORD = 'redproxy';
-  let redproxyTypedBuf = '';
   document.addEventListener('keydown', e => {
     if (!$navRedProxy) return;
-    const target = e.target;
-    const isTyping = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-    if (isTyping) { redproxyTypedBuf = ''; return; }
-    if (e.ctrlKey || e.altKey || e.metaKey) { redproxyTypedBuf = ''; return; }
-    if (!/^[a-zA-Z]$/.test(e.key)) { redproxyTypedBuf = ''; return; }
-    redproxyTypedBuf = (redproxyTypedBuf + e.key.toLowerCase()).slice(-REDPROXY_REVEAL_WORD.length);
-    if (redproxyTypedBuf === REDPROXY_REVEAL_WORD) {
-      redproxyTypedBuf = '';
+    if (e.ctrlKey && e.altKey && e.shiftKey && e.code === 'KeyR') {
+      e.preventDefault();
       $navRedProxy.classList.toggle('nav-hidden');
     }
   });
