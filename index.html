@@ -256,7 +256,7 @@ nav {
   min-width: 0;
 }
 
-/* Revealed only after Ctrl+Shift+K -- see script.js. */
+/* Revealed only after typing "redproxy" -- see script.js. */
 nav a.nav-hidden { display: none; }
 
 nav a {
@@ -1388,12 +1388,15 @@ footer {
     <a href="#movies"                data-section="movies">🎞️ Movies</a>
     <a href="#credits"               data-section="credits">🏆 Credits</a>
     <a href="#Testing"               data-section="Testing">🧪 Testing</a>
-    <!-- Hidden until Ctrl+Shift+K is pressed (see script.js). Renders as an
-         in-page section like Games/Testing -- the href is just a fallback
-         for right-click-open-in-new-tab / accessibility; the actual click
-         is intercepted by the normal nav delegation below since it has
-         data-section, same as every other tab. -->
-    <a href="/redproxy" id="navRedProxy" class="nav-hidden" data-section="redproxy">🕵️ Red Proxy</a>
+    <!-- Hidden until the reveal gesture runs (see script.js -- typing
+         "redproxy" anywhere on the page, not Ctrl+Shift+K anymore; see the
+         comment on that listener for why). Deliberately has NO
+         data-section, so the generic nav-link delegation below skips it --
+         clicking it opens /redproxy as a real standalone tab (its own
+         click handler, also in script.js) instead of switching to an
+         in-page section. The href is a plain fallback for
+         right-click-open-in-new-tab / accessibility. -->
+    <a href="/redproxy" id="navRedProxy" class="nav-hidden">🕵️ Red Proxy</a>
   </nav>
 
   <!-- Settings (theme slide-out) trigger -->
@@ -1744,25 +1747,9 @@ footer {
     </div>
   </section>
 
-  <!-- ── RED PROXY (hidden — see the Ctrl+Shift+K reveal in script.js) ──
-       Opens whatever's typed in a new tab -- see the submit handler in
-       script.js for why this deliberately isn't an iframe or a navigation
-       of this page. -->
-  <section id="redproxy" class="section" aria-label="Red Proxy">
-    <div class="section-inner">
-      <h2>🕵️ Red Proxy</h2>
-      <div class="card">
-        <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1.25rem;line-height:1.65;">
-          Type a URL, a bare hostname, or just search terms. Opens in a new tab — this page never navigates away.
-        </p>
-        <form id="rp-form" style="display:flex;gap:.6rem;">
-          <input id="rp-address" type="text" placeholder="Search or enter a URL" autocomplete="off" spellcheck="false" style="flex:1;">
-          <button type="submit" class="btn-primary">Go</button>
-        </form>
-        <p class="status" id="rp-status" aria-live="polite"></p>
-      </div>
-    </div>
-  </section>
+  <!-- Red Proxy has no embedded section here -- it's a standalone page
+       (/redproxy/index.html) opened in its own real tab, see navRedProxy's
+       click handler in script.js. -->
 
 </main>
 
@@ -2151,92 +2138,69 @@ footer {
   });
 
   /* ── Red Proxy — hidden nav tab ──────────────────────────────────
-     Ctrl+Shift+K reveals (or hides again) the "Red Proxy" nav item.
+     Reveals (or hides again) the "Red Proxy" nav item by TYPING the word
+     "redproxy" anywhere on the page (not while focused in a text
+     input/textarea/contenteditable, so normal typing in the request form
+     etc. can't trigger it by coincidence).
+
+     This used to be Ctrl+Shift+K. Switched away from any Ctrl+Shift+<letter>
+     combo entirely: Firefox hard-reserves Ctrl+Shift+K at the browser-chrome
+     level for its own Web Console -- it intercepts the keypress before page
+     JS ever sees it, so no amount of code here could ever make that combo
+     work for a Firefox user (confirmed: this is exactly why it did nothing
+     when tested). Nearly every other Ctrl+Shift+<letter> combo is ALSO
+     claimed by Chrome and/or Firefox for something (bookmarks, incognito,
+     devtools, reload, history, screenshots...), so rather than keep
+     whack-a-moling letters against two browsers' reserved-shortcut tables,
+     this uses a typed sequence instead -- plain letter keys with no
+     modifiers are never intercepted by browser chrome, so it works
+     identically everywhere.
+
      Deliberately NOT persisted across sessions (no localStorage here) --
      this is meant to stay a real easter egg, re-found each visit rather
      than staying permanently visible once someone stumbles onto it once.
      The theme/wallpaper picker below is a SEPARATE key (THEME_KEY) and is
      unaffected -- that one is still meant to persist. */
   const $navRedProxy = document.getElementById('navRedProxy');
+  const REDPROXY_REVEAL_WORD = 'redproxy';
+  let redproxyTypedBuf = '';
   document.addEventListener('keydown', e => {
     if (!$navRedProxy) return;
-    if (e.ctrlKey && e.shiftKey && (e.key === 'K' || e.key === 'k')) {
-      e.preventDefault();
+    const target = e.target;
+    const isTyping = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+    if (isTyping) { redproxyTypedBuf = ''; return; }
+    if (e.ctrlKey || e.altKey || e.metaKey) { redproxyTypedBuf = ''; return; }
+    if (!/^[a-zA-Z]$/.test(e.key)) { redproxyTypedBuf = ''; return; }
+    redproxyTypedBuf = (redproxyTypedBuf + e.key.toLowerCase()).slice(-REDPROXY_REVEAL_WORD.length);
+    if (redproxyTypedBuf === REDPROXY_REVEAL_WORD) {
+      redproxyTypedBuf = '';
       $navRedProxy.classList.toggle('nav-hidden');
     }
   });
 
-  /* ── Red Proxy — opens the target in a genuine new tab ───────────────
-     Deliberately NOT an iframe (and not a top-level navigation of THIS
-     page either): Red Portal can itself be opened inside a blob: tab by
-     an external launcher, and if that launcher's own origin isn't
-     redportal.dpdns.org, an iframe here becomes a THIRD-PARTY iframe from
-     the browser's own storage-partitioning point of view -- confirmed
-     directly via Chrome's own console message ("Partitioned cookie or
-     storage access was provided to .../embed.html ... because it is
-     loaded in the third-party context"). That partitioning is what broke
-     things two different ways depending on timing: sometimes
-     navigator.serviceWorker.register() itself throws "Scope URL is not
-     same-origin with Client", other times registration limps through but
-     the partitioned SharedWorker bare-mux needs for its transport comes
-     up inconsistent, surfacing later as "TypeError: error loading
-     dynamically imported module .../libcurl/index.mjs ... BareTransport
-     provided was invalid". Neither a <base> tag nor picking a
-     same-origin iframe src fixes this -- storage partitioning keys off
-     the ACTUAL top-level site, not what any embedded document's own
-     origin claims to be, and that's not something page-level code can
-     opt out of.
+  /* ── Red Proxy — opens as its own real, standalone tab ───────────────
+     Clicking the revealed nav item opens /redproxy (the standalone
+     Scramjet-frontend page -- redproxy/index.html + app.js, a plain
+     address-bar-and-go-button UI that behaves like a normal Scramjet
+     deployment: typing a URL/search and hitting Go navigates THAT tab
+     directly to the proxied site, same as visiting a real Scramjet
+     instance) in a genuine new top-level tab via window.open(), called
+     synchronously inside the click handler so it can't get popup-blocked.
 
-     Fix: don't embed anything here at all. window.open() a genuine new
-     top-level tab pointed at /redproxy/embed.html?url=<target> -- the
-     same bridge page the automation bot already uses (there, iframed on
-     its own trusted domain, which is a completely different, unaffected
-     situation). A real top-level tab is never storage-partitioned, so
-     every piece of this (service worker, SharedWorker, dynamic import)
-     runs exactly as it does on a normal top-level visit. This still
-     satisfies the actual requirement -- THIS page's own tab and URL never
-     change -- opening a second tab alongside it is fine.
-
-     window.open() is called synchronously, still inside the form's
-     'submit' user gesture, so it can't get popup-blocked; toTargetUrl()
-     is inlined (not lazy-loaded) specifically so nothing async runs
-     between the click and the window.open() call. */
-  function toTargetUrl(input, template) {
-    try {
-      // Already a valid, fully-qualified URL.
-      return new URL(input).toString();
-    } catch {}
-    try {
-      // Valid once a scheme is assumed -- only trust this if the hostname
-      // actually looks like a real host (has a dot), so "search terms
-      // with spaces" don't accidentally parse as some garbage single-
-      // label host.
-      const url = new URL(`https://${input}`);
-      if (url.hostname.includes('.')) return url.toString();
-    } catch {}
-    // Treat as a search query.
-    return template.replace('%s', encodeURIComponent(input));
-  }
-
-  const $rpForm = document.getElementById('rp-form');
-  if ($rpForm) {
-    $rpForm.addEventListener('submit', e => {
-      e.preventDefault();
-      const input = document.getElementById('rp-address');
-      const val = input.value.trim();
-      if (!val) return;
-
-      const target = toTargetUrl(val, 'https://www.google.com/search?q=%s');
-      const embedUrl = '/redproxy/embed.html?url=' + encodeURIComponent(target);
-      const win = window.open(embedUrl, '_blank');
-      if (win) {
-        setStatus('rp-status', 'Opened in a new tab.', 'ok');
-        input.value = '';
-      } else {
-        setStatus('rp-status', '⚠ Pop-up blocked — allow pop-ups for this site, then try again.', 'err');
-      }
-    });
-  }
+     Why a NEW tab instead of just following the link normally: Red Portal
+     itself can be opened inside a blob: tab by an external launcher whose
+     own origin isn't redportal.dpdns.org (see openGame()) -- if Red Proxy
+     replaced THIS tab's content via a normal link-follow, it would break
+     out of that wrapper. Opening a separate tab sidesteps that entirely,
+     and the new tab is a genuine top-level navigation to a real
+     https://redportal.dpdns.org/redproxy URL from the moment it opens --
+     never a blob, never third-party-partitioned -- so its own service
+     worker registration and everything downstream of it (wisp, bare-mux,
+     Scramjet) just works exactly like visiting any normal site. */
+  $navRedProxy.addEventListener('click', e => {
+    e.preventDefault();
+    window.open('/redproxy', '_blank');
+  });
 
   /** Replay card reveal animations with per-card stagger delay.
    *  Uses a single container reflow instead of one per button, avoiding
