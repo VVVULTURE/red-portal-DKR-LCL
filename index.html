@@ -986,6 +986,81 @@ label.section-label {
   padding: var(--sp-xl) var(--sp-lg);
 }
 
+/* ── 21b. RED PROXY (full-bleed, no .section-inner — it needs the
+   whole viewport width, not the site's centered max-width column) ─── */
+#redproxy.section.active {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--header-h));
+}
+
+.rp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem var(--sp-md);
+  background: rgba(10, 10, 16, 0.85);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.rp-nav-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  width: 2.15rem;
+  height: 2.15rem;
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s;
+}
+.rp-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.rp-nav-btn:disabled { opacity: 0.35; cursor: default; }
+
+.rp-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 160px;
+}
+.rp-form #rp-address { flex: 1; min-width: 0; }
+
+#redproxy .status { margin: 0 var(--sp-md); flex-shrink: 0; }
+#redproxy .status:empty { display: none; }
+
+.rp-frame-area {
+  flex: 1;
+  min-height: 0; /* required so a flex child can actually shrink/scroll instead of overflowing */
+  position: relative;
+  background: #000;
+}
+.rp-frame-area iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.rp-frame-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  text-align: center;
+  padding: 2rem;
+}
+
 /* ── 22. REDUCED MOTION ──────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -1026,6 +1101,14 @@ label.section-label {
   .section-inner { padding: var(--sp-lg) var(--sp-md); }
 
   h2 { padding: var(--sp-md) var(--sp-md) 0; }
+
+  /* --header-h becomes "auto" above, which makes calc(100vh - var(--header-h))
+     an invalid value -- fall back to a fixed, reasonable height instead of
+     silently collapsing to the section's unconstrained content height. */
+  #redproxy.section.active { height: 80vh; }
+
+  .rp-toolbar { padding: 0.45rem 0.6rem; }
+  .rp-form { min-width: 100px; }
 }
 
 @media (max-width: 480px) {
@@ -1747,9 +1830,32 @@ footer {
     </div>
   </section>
 
-  <!-- Red Proxy has no embedded section here -- it's a standalone page
-       (/redproxy/index.html) opened in its own real tab, see navRedProxy's
-       click handler in script.js. -->
+  <!-- ── RED PROXY ────────────────────────────────────────────────────
+       Lives INSIDE Red Portal, filling the screen below the header --
+       see the big comment block on navRedProxy's click handler in
+       script.js for how this is built (scramjet.createFrame(), a real
+       iframe appended into #rp-frame-area) and for the one case where
+       this section is skipped in favor of opening /redproxy as a
+       separate tab instead (Red Portal itself running inside a blob:
+       tab -- iframing is not safe there, full explanation in that
+       comment). -->
+  <section id="redproxy" class="section" aria-label="Red Proxy">
+    <div class="rp-toolbar">
+      <button type="button" id="rp-back" class="rp-nav-btn" title="Back" disabled>‹</button>
+      <button type="button" id="rp-forward" class="rp-nav-btn" title="Forward" disabled>›</button>
+      <button type="button" id="rp-reload" class="rp-nav-btn" title="Reload" disabled>⟳</button>
+      <form id="rp-form" class="rp-form">
+        <input id="rp-address" type="text" placeholder="Search or enter a URL" autocomplete="off" spellcheck="false" disabled>
+        <button type="submit" class="btn-primary" disabled>Go</button>
+      </form>
+    </div>
+    <p class="status" id="rp-status" aria-live="polite"></p>
+    <div id="rp-frame-area" class="rp-frame-area">
+      <div id="rp-frame-placeholder" class="rp-frame-placeholder">
+        <p>Loading Red Proxy…</p>
+      </div>
+    </div>
+  </section>
 
 </main>
 
@@ -2174,28 +2280,179 @@ footer {
     }
   });
 
-  /* ── Red Proxy — opens as its own real, standalone tab ───────────────
-     Clicking the revealed nav item opens /redproxy (the standalone
-     Scramjet-frontend page -- redproxy/index.html + app.js, a plain
-     address-bar-and-go-button UI that behaves like a normal Scramjet
-     deployment: typing a URL/search and hitting Go navigates THAT tab
-     directly to the proxied site, same as visiting a real Scramjet
-     instance) in a genuine new top-level tab via window.open(), called
-     synchronously inside the click handler so it can't get popup-blocked.
+  /* ── Red Proxy — lives INSIDE Red Portal, filling the screen below
+     the header ──────────────────────────────────────────────────────
+     Recreated to match how MercuryWorkshop's own reference Scramjet app
+     works (github.com/MercuryWorkshop/scramjet, packages/create-proxy-app):
+     a toolbar (address bar + Go, back/forward/reload) with the proxied
+     site rendered in a real <iframe> filling the rest of the section --
+     via scramjet.createFrame(), the same documented API that reference
+     app uses, just appended into #rp-frame-area instead of a bare
+     document.body. Everything it needs (wisp, the scram/baremux/libcurl
+     bundles, the /redproxy/sw.js service worker) is served by Red
+     Portal's own server.js, in-process -- there is no external wisp
+     server or hosted dependency anywhere in this flow.
 
-     Why a NEW tab instead of just following the link normally: Red Portal
-     itself can be opened inside a blob: tab by an external launcher whose
-     own origin isn't redportal.dpdns.org (see openGame()) -- if Red Proxy
-     replaced THIS tab's content via a normal link-follow, it would break
-     out of that wrapper. Opening a separate tab sidesteps that entirely,
-     and the new tab is a genuine top-level navigation to a real
-     https://redportal.dpdns.org/redproxy URL from the moment it opens --
-     never a blob, never third-party-partitioned -- so its own service
-     worker registration and everything downstream of it (wisp, bare-mux,
-     Scramjet) just works exactly like visiting any normal site. */
+     ONE case does NOT use this in-page iframe: Red Portal itself running
+     inside a blob: tab (opened by an external launcher whose own origin
+     isn't redportal.dpdns.org -- see openGame()). This isn't a stylistic
+     choice, it's a hard browser-platform wall, empirically confirmed
+     with a real test (a page verified to be SW-controlled loses
+     `navigator.serviceWorker.controller` the instant it navigates to a
+     blob: URL, even a same-origin one it created itself) plus the
+     original bug reports that started this whole feature: when the
+     TOP-LEVEL browsing context isn't a recognized site (a blob has no
+     real "site" of its own), the browser treats ANY iframe inside it --
+     even one pointed at this exact origin -- as third-party and
+     partitions its storage, which breaks the service worker
+     registration and the SharedWorker bare-mux needs. No config here
+     can opt out of that. So: if Red Portal's own tab is detected to be
+     blob-wrapped, clicking Red Proxy instead opens /redproxy (the
+     standalone page, redproxy/index.html + app.js) as a genuine new
+     top-level tab via window.open() -- which is never blob-wrapped
+     itself and therefore never hits this wall -- with a status message
+     explaining why, instead of silently doing something different than
+     what's visible. */
+  function isRedPortalItselfBlobWrapped() {
+    return location.href.startsWith('blob:');
+  }
+
+  const _rpLoadedScripts = new Map();
+  function rpLoadScriptOnce(src) {
+    if (_rpLoadedScripts.has(src)) return _rpLoadedScripts.get(src);
+    const p = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.head.appendChild(s);
+    });
+    _rpLoadedScripts.set(src, p);
+    return p;
+  }
+
+  function rpToTargetUrl(input, template) {
+    try {
+      // Already a valid, fully-qualified URL.
+      return new URL(input).toString();
+    } catch {}
+    try {
+      // Valid once a scheme is assumed -- only trust this if the hostname
+      // actually looks like a real host (has a dot), so "search terms
+      // with spaces" don't accidentally parse as some garbage single-
+      // label host.
+      const url = new URL(`https://${input}`);
+      if (url.hostname.includes('.')) return url.toString();
+    } catch {}
+    // Treat as a search query.
+    return template.replace('%s', encodeURIComponent(input));
+  }
+
+  const $rpAddress   = document.getElementById('rp-address');
+  const $rpForm      = document.getElementById('rp-form');
+  const $rpBack      = document.getElementById('rp-back');
+  const $rpForward   = document.getElementById('rp-forward');
+  const $rpReload    = document.getElementById('rp-reload');
+  const $rpFrameArea = document.getElementById('rp-frame-area');
+  const $rpPlaceholder = document.getElementById('rp-frame-placeholder');
+
+  let rpFrame = null;
+  let rpInitPromise = null;
+
+  /** Lazily loads Scramjet + bare-mux, registers the Red Proxy service
+   *  worker, points bare-mux at this server's own /wisp/ endpoint over
+   *  the fast WASM libcurl transport, and creates the real iframe --
+   *  all exactly once, no matter how many times it's (re-)triggered.
+   *
+   *  Safe to register the SW directly from THIS document's own script
+   *  (unlike the old, since-replaced in-page design that broke this
+   *  way -- see Bug #5 in project memory): navigator.serviceWorker
+   *  .register()'s same-origin check is against the CALLING document's
+   *  actual origin, and by the time this ever runs we've already
+   *  confirmed (via isRedPortalItselfBlobWrapped()) that this document
+   *  is NOT a blob -- so its origin genuinely is redportal.dpdns.org. */
+  function initRedProxyFrame() {
+    if (rpInitPromise) return rpInitPromise;
+    rpInitPromise = (async () => {
+      setStatus('rp-status', 'Loading Red Proxy…');
+
+      await Promise.all([
+        rpLoadScriptOnce('/scram/scramjet.all.js'),
+        rpLoadScriptOnce('/baremux/index.js'),
+      ]);
+
+      const { ScramjetController } = $scramjetLoadController();
+      const scramjet = new ScramjetController({
+        files: {
+          wasm: '/scram/scramjet.wasm.wasm',
+          all:  '/scram/scramjet.all.js',
+          sync: '/scram/scramjet.sync.js',
+        },
+      });
+      // MUST run before touching the service worker at all -- doing it
+      // after throws an unhandled "Failed to execute 'transaction' on
+      // 'IDBDatabase'" that the surrounding try/catch here can't see,
+      // and the proxied content silently never renders (hit and fixed
+      // twice already this project, in two different files -- see
+      // project memory bugs #2/#3 if this ever silently breaks again).
+      scramjet.init();
+
+      await navigator.serviceWorker.register('/redproxy/sw.js', { scope: '/' });
+
+      const connection = new BareMux.BareMuxConnection('/baremux/worker.js');
+      const wispUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/wisp/';
+      if ((await connection.getTransport()) !== '/libcurl/index.mjs') {
+        await connection.setTransport('/libcurl/index.mjs', [{ websocket: wispUrl }]);
+      }
+
+      rpFrame = scramjet.createFrame();
+      rpFrame.frame.title = 'Red Proxy';
+      $rpFrameArea.appendChild(rpFrame.frame);
+
+      rpFrame.addEventListener('urlchange', (e) => {
+        if ($rpAddress) $rpAddress.value = e.url;
+        $rpBack.disabled = false;
+        $rpForward.disabled = false;
+        $rpReload.disabled = false;
+        $rpPlaceholder.style.display = 'none';
+      });
+
+      $rpAddress.disabled = false;
+      $rpForm.querySelector('button[type="submit"]').disabled = false;
+      $rpPlaceholder.querySelector('p').textContent = 'Type a URL or search above to get started.';
+      setStatus('rp-status', '');
+    })().catch((err) => {
+      rpInitPromise = null; // allow retrying (e.g. after a transient network error)
+      setStatus('rp-status', 'Failed to load Red Proxy: ' + err.message, 'err');
+      throw err;
+    });
+    return rpInitPromise;
+  }
+
+  $rpForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const val = $rpAddress.value.trim();
+    if (!val) return;
+    try {
+      await initRedProxyFrame();
+      rpFrame.go(rpToTargetUrl(val, 'https://www.google.com/search?q=%s'));
+    } catch (err) {
+      // Already surfaced via rp-status by initRedProxyFrame's catch.
+    }
+  });
+
+  $rpBack.addEventListener('click', () => rpFrame && rpFrame.back());
+  $rpForward.addEventListener('click', () => rpFrame && rpFrame.forward());
+  $rpReload.addEventListener('click', () => rpFrame && rpFrame.reload());
+
   $navRedProxy.addEventListener('click', e => {
     e.preventDefault();
-    window.open('/redproxy', '_blank');
+    if (isRedPortalItselfBlobWrapped()) {
+      window.open('/redproxy', '_blank');
+      return;
+    }
+    showSection('redproxy', $navRedProxy);
+    initRedProxyFrame().catch(() => {}); // error already shown via rp-status
   });
 
   /** Replay card reveal animations with per-card stagger delay.

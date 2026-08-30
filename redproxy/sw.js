@@ -64,8 +64,8 @@ async function handleRequest(event) {
  * lazily constructs+inits the libcurl-transport BareTransport on the
  * FIRST fetch/websocket message it ever processes (see bare-mux's
  * worker.js: `s.ready || await s.init()`). That's a real, confirmed
- * upstream ordering bug in @mercuryworkshop/libcurl-transport's own
- * LibcurlClient.init(): it constructs `new libcurl.HTTPSession(...)`
+ * upstream ordering bug in @mercuryworkshop/libcurl-transport@1.5.2's
+ * own LibcurlClient.init(): it constructs `new libcurl.HTTPSession(...)`
  * BEFORE checking whether the underlying WASM runtime has finished
  * loading, and HTTPSession's constructor synchronously throws
  * "wasm not loaded yet, please call libcurl.load_wasm first" if it
@@ -76,11 +76,21 @@ async function handleRequest(event) {
  * worker-lifetime `wasm_ready` flag internal to that module -- every
  * request after the first successful one is unaffected).
  *
- * Rather than patch the vendored dependency directly (fragile across
- * package updates), retry the SAME request a few times with a short
- * delay -- by the second or third attempt the WASM has always finished
- * loading in every test run. Only this specific, known-transient error
- * is retried; anything else fails immediately.
+ * This IS fixed properly upstream in libcurl-transport 2.0.0+ (confirmed
+ * by reading that version's source), but 2.x turned out to be a real,
+ * separate breaking change against the bare-mux version this project
+ * runs (2.1.9) -- its request() now expects headers as an iterable of
+ * [key, value] pairs instead of a plain object, which bare-mux 2.1.9
+ * doesn't send, throwing "headers is not iterable" on every proxied
+ * request. Upgrading would mean also chasing a matching newer bare-mux
+ * (and re-verifying everything downstream of it), which isn't worth the
+ * risk just to fix this one race when this retry already handles it
+ * cleanly -- staying on 1.5.2 with this wrapper instead. Rather than
+ * patch the vendored dependency directly (fragile across package
+ * updates), retry the SAME request a few times with a short delay -- by
+ * the second or third attempt the WASM has always finished loading in
+ * every test run. Only this specific, known-transient error is retried;
+ * anything else fails immediately.
  */
 async function fetchScramjetWithRetry(event) {
   const MAX_ATTEMPTS = 6;
