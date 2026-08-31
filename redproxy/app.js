@@ -1,18 +1,5 @@
 'use strict';
 
-const { ScramjetController } = $scramjetLoadController();
-
-const scramjet = new ScramjetController({
-  files: {
-    wasm: '/scram/scramjet.wasm.wasm',
-    all:  '/scram/scramjet.all.js',
-    sync: '/scram/scramjet.sync.js',
-  },
-});
-scramjet.init();
-
-const connection = new BareMux.BareMuxConnection('/baremux/worker.js');
-
 const DEFAULT_SEARCH_TEMPLATE = 'https://www.google.com/search?q=%s';
 
 function setStatus(msg, isError) {
@@ -22,40 +9,72 @@ function setStatus(msg, isError) {
   el.classList.toggle('err', !!isError);
 }
 
-/** Point bare-mux at the local (same-process) wisp endpoint, over the fast
- *  WASM libcurl transport — never a third-party proxy/wisp server. */
-async function ensureTransport() {
-  const wispUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/wisp/';
-  if ((await connection.getTransport()) !== '/libcurl/index.mjs') {
-    await connection.setTransport('/libcurl/index.mjs', [{ websocket: wispUrl }]);
-  }
-}
+const $rpAddress = document.getElementById('rp-address');
+const $rpForm = document.getElementById('rp-form');
+const $rpBack = document.getElementById('rp-back');
+const $rpForward = document.getElementById('rp-forward');
+const $rpReload = document.getElementById('rp-reload');
+const $rpFrameEl = document.getElementById('rp-frame');
+const $rpPlaceholder = document.getElementById('rp-frame-placeholder');
 
-async function goTo(rawInput) {
-  setStatus('Connecting…');
-  await registerRedProxySW();
-  await ensureTransport();
+let rpFrame = null;
+let initPromise = null;
 
-  const target = toTargetUrl(rawInput, DEFAULT_SEARCH_TEMPLATE);
+/** Attaches the Controller to the real, already-in-the-DOM #rp-frame
+ *  iframe -- NOT a top-level navigation of this tab. The Controller
+ *  architecture needs to stay resident in a page's own JS context for a
+ *  frame it manages to keep working (confirmed directly: navigating the
+ *  whole tab away via location.href to a computed proxy URL, the way the
+ *  old v1.1.0 API supported, tears down the Controller mid-flight here
+ *  and leaves an empty shell document with just its two injected
+ *  bootstrap <script> tags and no body -- an iframe kept in this same
+ *  document works correctly, exactly like the in-page Red Proxy section
+ *  on the main site). */
+function init() {
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    setStatus('Loading Red Proxy…');
+    const controller = await initRedProxyController();
 
-  // Scramjet's own Frame machinery is used ONLY to compute the
-  // codec-rewritten URL -- the iframe element it creates is never inserted
-  // into the page (so it never loads anything, never renders). The whole
-  // tab then navigates directly to that computed URL, so the proxied site
-  // takes over the real top-level browsing context -- no iframe involved
-  // in what actually gets shown.
-  const frame = scramjet.createFrame();
-  const encoded = frame.go(target) || frame.frame.src;
-  location.href = encoded;
-}
+    const urlWatcher = new window.$scramjetUtils.UrlWatcherPlugin((url) => {
+      if ($rpAddress) $rpAddress.value = url;
+      $rpBack.disabled = false;
+      $rpForward.disabled = false;
+      $rpReload.disabled = false;
+      $rpPlaceholder.style.display = 'none';
+    });
 
-document.getElementById('rp-form').addEventListener('submit', (event) => {
-  event.preventDefault();
-  const input = document.getElementById('rp-address');
-  const val = input.value.trim();
-  if (!val) return;
-  goTo(val).catch((err) => {
-    console.error('[redproxy]', err);
-    setStatus('Failed: ' + err.message, true);
+    rpFrame = controller.createFrame($rpFrameEl, { plugins: [urlWatcher] });
+
+    $rpAddress.disabled = false;
+    $rpForm.querySelector('button[type="submit"]').disabled = false;
+    $rpPlaceholder.querySelector('p').textContent = 'Type a URL or search above to get started.';
+    setStatus('');
+  })().catch((err) => {
+    initPromise = null;
+    setStatus('Failed to load Red Proxy: ' + err.message, true);
+    throw err;
   });
+  return initPromise;
+}
+
+document.getElementById('rp-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const val = $rpAddress.value.trim();
+  if (!val) return;
+  try {
+    await init();
+    rpFrame.go(toTargetUrl(val, DEFAULT_SEARCH_TEMPLATE));
+  } catch (err) {
+    console.error('[redproxy]', err);
+    // Already surfaced via rp-status by init()'s catch.
+  }
 });
+
+$rpBack.addEventListener('click', () => rpFrame && rpFrame.back());
+$rpForward.addEventListener('click', () => rpFrame && rpFrame.forward());
+$rpReload.addEventListener('click', () => rpFrame && rpFrame.reload());
+
+// Kick off init as soon as the page loads, so the toolbar is usable
+// (address bar enabled) without waiting for the first submit.
+init().catch(() => {});

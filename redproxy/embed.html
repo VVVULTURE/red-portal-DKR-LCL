@@ -4,48 +4,43 @@
 <meta charset="UTF-8">
 <title>Loading…</title>
 <style>
-  html, body { width: 100%; height: 100%; margin: 0; background: #000; overflow: hidden; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
   #msg {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
     color: #ffdddd; font-family: sans-serif; font-size: .9rem; text-align: center; padding: 1rem;
   }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
 </style>
 </head>
 <body>
 <div id="msg">Loading…</div>
+<iframe id="target-frame" title="Proxied content" style="display:none;"></iframe>
 
-<script src="/scram/scramjet.all.js"></script>
-<script src="/baremux/index.js"></script>
-<script src="/redproxy/register-sw.js"></script>
+<script src="/redproxy/controller-init.js"></script>
 <script>
 'use strict';
 /**
  * Bridge page used as an <iframe> target when a game/site refuses to be
  * embedded directly (X-Frame-Options/CSP) -- see templates.js in the
- * automation bot. This document lives INSIDE that iframe; it registers the
- * Red Proxy service worker, computes the target's rewritten Scramjet URL,
- * then replaces its own location with it. No second/nested iframe is added
- * -- the same document that the bot's iframe already points at just
- * navigates itself to the real (rewritten) target.
+ * automation bot. This document lives INSIDE that iframe; it initializes
+ * the Red Proxy controller and attaches it to a second, INNER iframe
+ * (#target-frame) that fills this whole document -- the bot's own iframe
+ * sees only the proxied content, visually indistinguishable from a
+ * single-level embed.
+ *
+ * NOT a top-level location.replace() of this document (the previous
+ * approach, before this project moved to the Scramjet Controller
+ * architecture): confirmed directly that doing so tears the Controller
+ * down mid-flight, since it needs to stay resident in the page that
+ * created it for its managed frame to keep working -- navigating away
+ * left an empty shell document with none of the real proxied content.
+ * An iframe kept alive in THIS document works correctly instead, exactly
+ * like the in-page Red Proxy section on the main site.
  */
-// scramjet.init() must run before the service worker is touched at all --
-// calling it AFTER registerRedProxySW() (as this used to) hits a real bug:
-// "Failed to execute 'transaction' on 'IDBDatabase': One of the specified
-// object stores was not found", then the actual proxied navigation fails
-// outright. Matches the working order in app.js: init() first, at script
-// load, unconditionally; the service worker is only touched later.
-const { ScramjetController } = $scramjetLoadController();
-const scramjet = new ScramjetController({
-  files: {
-    wasm: '/scram/scramjet.wasm.wasm',
-    all:  '/scram/scramjet.all.js',
-    sync: '/scram/scramjet.sync.js',
-  },
-});
-scramjet.init();
-
 (async () => {
   const msg = document.getElementById('msg');
+  const frameEl = document.getElementById('target-frame');
   const params = new URLSearchParams(location.search);
   const target = params.get('url');
   if (!target) {
@@ -54,17 +49,11 @@ scramjet.init();
   }
 
   try {
-    await registerRedProxySW();
-
-    const connection = new BareMux.BareMuxConnection('/baremux/worker.js');
-    const wispUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/wisp/';
-    if ((await connection.getTransport()) !== '/libcurl/index.mjs') {
-      await connection.setTransport('/libcurl/index.mjs', [{ websocket: wispUrl }]);
-    }
-
-    const frame = scramjet.createFrame();
-    const encoded = frame.go(target) || frame.frame.src;
-    location.replace(encoded);
+    const controller = await initRedProxyController();
+    const frame = controller.createFrame(frameEl);
+    frame.go(target);
+    frameEl.style.display = 'block';
+    msg.style.display = 'none';
   } catch (err) {
     console.error('[redproxy/embed]', err);
     msg.textContent = 'Could not load this through the proxy: ' + err.message;

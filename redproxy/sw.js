@@ -1,119 +1,31 @@
 /**
- * Red Proxy — service worker
- * ===========================
- * Registered at root scope "/" (see register-sw.js — has to be, since
- * Scramjet's own codec rewrites proxied URLs to live under its internal
- * prefix at the site root, not under /redproxy/). It only actually acts on
- * requests that fall under that internal proxy prefix; everything else
- * (Red Portal itself, Games/, Testing/, assets/) is meant to pass straight
- * through via a plain fetch(), unchanged from having no service worker at
- * all -- see the same-origin bypass below for why that's now guaranteed
- * rather than just intended.
+ * Red Proxy — service worker (Scramjet Controller architecture)
+ * ================================================================
+ * Registered at root scope "/" (see controller-init.js's explicit
+ * {scope:'/'} and the Service-Worker-Allowed header server.js sends for
+ * this path) -- Scramjet's own codec rewrites proxied URLs to live under
+ * its internal prefix at the site root, not under /redproxy/, so a
+ * narrower scope would silently never intercept them.
  *
- * REGRESSION FIXED HERE: the previous version always called
- * scramjet.loadConfig()/route() first, for every single request on the
- * ENTIRE origin (root scope), before ever falling back to a plain fetch.
- * Once this worker got installed (which happens the first time anyone
- * opens the Red Proxy tab), it stayed registered and kept intercepting
- * every future page load site-wide -- and a cross-origin request (e.g. a
- * game icon on assets.redportal.dpdns.org) made scramjet.route()/fetch()
- * reject instead of ever reaching the fallback, which the browser then
- * reported as the resource failing to load outright. That's why icons,
- * the logo, and other R2-hosted assets could vanish sitewide after
- * someone merely tried the proxy once -- confirmed by reproducing it
- * locally: reload the main page after using the proxy once, and every
- * cross-origin asset request comes back net::ERR_FAILED.
- *
- * Fix: bail out to a plain fetch() immediately -- before touching
- * Scramjet at all -- for anything that isn't even on this origin.
- * Scramjet's own rewritten proxy URLs always live under THIS origin (the
- * /scramjet/<encoded> prefix), so this can never intercept a real proxy
- * target; it only guarantees ordinary site traffic never touches Scramjet.
- * The try/catch around the same-origin path is defense in depth, in case
- * loadConfig()/route()/fetch() ever throws for some other reason.
+ * controller.sw.js's own shouldRoute(event) is what keeps this safe for
+ * the rest of the site: it returns false for anything that isn't one of
+ * this controller's own recognized (same-origin, scramjet-prefixed)
+ * URLs, so nothing here ever touches -- or even calls respondWith() for
+ * -- ordinary site traffic (Red Portal itself, Games/Testing/, R2-hosted
+ * assets). That matters a lot here specifically: a service worker
+ * inherits COEP/COOP from its OWN script response (this file is served
+ * WITHOUT those headers, isolate:false in server.js), and this worker is
+ * registered at root scope for the whole origin -- calling respondWith()
+ * unconditionally for every request would risk exactly the sitewide
+ * asset-breakage regression this project hit once already with the
+ * previous (pre-Controller) service worker (see project memory, Bug #4).
+ * controller.sw.js also wires its own install/activate handlers
+ * (skipWaiting/clients.claim) -- nothing extra needed here for that.
  */
-importScripts('/scram/scramjet.all.js');
+importScripts('/controller/controller.sw.js');
 
-const { ScramjetServiceWorker } = $scramjetLoadWorker();
-const scramjet = new ScramjetServiceWorker();
-
-async function handleRequest(event) {
-  let url;
-  try { url = new URL(event.request.url); } catch { return fetch(event.request); }
-
-  // Fast, synchronous bypass -- never let cross-origin site traffic (game
-  // icons, tutorial videos, anything on assets.redportal.dpdns.org, etc.)
-  // anywhere near Scramjet's async config/routing logic.
-  if (url.origin !== self.location.origin) {
-    return fetch(event.request);
+addEventListener('fetch', (event) => {
+  if ($scramjetController.shouldRoute(event)) {
+    event.respondWith($scramjetController.route(event));
   }
-
-  try {
-    await scramjet.loadConfig();
-    if (scramjet.route(event)) {
-      return await fetchScramjetWithRetry(event);
-    }
-  } catch (err) {
-    console.error('[redproxy sw] scramjet error, falling back to plain fetch:', err);
-  }
-  return fetch(event.request);
-}
-
-/**
- * scramjet.fetch() ultimately calls into bare-mux's SharedWorker, which
- * lazily constructs+inits the libcurl-transport BareTransport on the
- * FIRST fetch/websocket message it ever processes (see bare-mux's
- * worker.js: `s.ready || await s.init()`). That's a real, confirmed
- * upstream ordering bug in @mercuryworkshop/libcurl-transport@1.5.2's
- * own LibcurlClient.init(): it constructs `new libcurl.HTTPSession(...)`
- * BEFORE checking whether the underlying WASM runtime has finished
- * loading, and HTTPSession's constructor synchronously throws
- * "wasm not loaded yet, please call libcurl.load_wasm first" if it
- * hasn't -- instead of waiting first, the way the rest of that same
- * init() function does. So the very first proxied request in this
- * worker's lifetime can throw that error even though the WASM finishes
- * loading correctly moments later (confirmed: it's a one-time,
- * worker-lifetime `wasm_ready` flag internal to that module -- every
- * request after the first successful one is unaffected).
- *
- * This IS fixed properly upstream in libcurl-transport 2.0.0+ (confirmed
- * by reading that version's source), but 2.x turned out to be a real,
- * separate breaking change against the bare-mux version this project
- * runs (2.1.9) -- its request() now expects headers as an iterable of
- * [key, value] pairs instead of a plain object, which bare-mux 2.1.9
- * doesn't send, throwing "headers is not iterable" on every proxied
- * request. Upgrading would mean also chasing a matching newer bare-mux
- * (and re-verifying everything downstream of it), which isn't worth the
- * risk just to fix this one race when this retry already handles it
- * cleanly -- staying on 1.5.2 with this wrapper instead. Rather than
- * patch the vendored dependency directly (fragile across package
- * updates), retry the SAME request a few times with a short delay -- by
- * the second or third attempt the WASM has always finished loading in
- * every test run. Only this specific, known-transient error is retried;
- * anything else fails immediately.
- */
-async function fetchScramjetWithRetry(event) {
-  const MAX_ATTEMPTS = 6;
-  const RETRY_DELAY_MS = 350;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      return await scramjet.fetch(event);
-    } catch (err) {
-      const isWasmRace = err && typeof err.message === 'string' && err.message.includes('wasm not loaded yet');
-      if (!isWasmRace || attempt === MAX_ATTEMPTS) throw err;
-      console.warn(`[redproxy sw] libcurl WASM not ready yet, retrying (attempt ${attempt}/${MAX_ATTEMPTS})`);
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-    }
-  }
-}
-
-self.addEventListener('fetch', (event) => {
-  event.respondWith(handleRequest(event));
 });
-
-// Take over immediately on install/activate instead of waiting for every
-// tab running the OLD (buggy) worker to close first -- so once the fix
-// above is deployed, it actually reaches people who already have the
-// broken worker registered from before, on their very next visit.
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));

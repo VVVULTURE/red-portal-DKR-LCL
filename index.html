@@ -1866,6 +1866,11 @@ footer {
       <div id="rp-frame-placeholder" class="rp-frame-placeholder">
         <p>Loading Red Proxy…</p>
       </div>
+      <!-- A real, already-in-the-DOM iframe -- matches how MercuryWorkshop's
+           own reference app does this (controller.createFrame(existingElement,
+           {plugins})), rather than createFrame() creating+returning a
+           detached one for us to insert ourselves. -->
+      <iframe id="rp-frame" title="Red Proxy"></iframe>
     </div>
   </section>
 
@@ -2294,16 +2299,21 @@ footer {
 
   /* ── Red Proxy — lives INSIDE Red Portal, filling the screen below
      the header ──────────────────────────────────────────────────────
-     Recreated to match how MercuryWorkshop's own reference Scramjet app
-     works (github.com/MercuryWorkshop/scramjet, packages/create-proxy-app):
+     Built directly on MercuryWorkshop's current reference architecture
+     (github.com/MercuryWorkshop/scramjet -- @mercuryworkshop/scramjet-
+     controller + @mercuryworkshop/scramjet-utils + @mercuryworkshop/
+     proxy-transports' direct client transport, the same packages their
+     own create-proxy-app template uses), not just a UI recreation of it:
      a toolbar (address bar + Go, back/forward/reload) with the proxied
-     site rendered in a real <iframe> filling the rest of the section --
-     via scramjet.createFrame(), the same documented API that reference
-     app uses, just appended into #rp-frame-area instead of a bare
-     document.body. Everything it needs (wisp, the scram/baremux/libcurl
-     bundles, the /redproxy/sw.js service worker) is served by Red
-     Portal's own server.js, in-process -- there is no external wisp
-     server or hosted dependency anywhere in this flow.
+     site rendered in a real <iframe> filling the rest of the section,
+     via controller.createFrame() -- see redproxy/controller-init.js for
+     the shared setup (also used by the standalone /redproxy page and the
+     automation bot's embed.html). Everything it needs (wisp, the
+     scram/controller/libcurl bundles, the /redproxy/sw.js service
+     worker) is served by Red Portal's own server.js, in-process -- there
+     is no external wisp server or hosted dependency anywhere in this
+     flow, and no SharedWorker either (this architecture's transport is
+     constructed directly in the page, unlike the old bare-mux design).
 
      ONE case does NOT use this in-page iframe: Red Portal itself running
      inside a blob: tab (opened by an external launcher whose own origin
@@ -2316,15 +2326,13 @@ footer {
      TOP-LEVEL browsing context isn't a recognized site (a blob has no
      real "site" of its own), the browser treats ANY iframe inside it --
      even one pointed at this exact origin -- as third-party and
-     partitions its storage, which breaks the service worker
-     registration and the SharedWorker bare-mux needs. No config here
-     can opt out of that. So: if Red Portal's own tab is detected to be
-     blob-wrapped, clicking Red Proxy instead opens /redproxy (the
-     standalone page, redproxy/index.html + app.js) as a genuine new
-     top-level tab via window.open() -- which is never blob-wrapped
-     itself and therefore never hits this wall -- with a status message
-     explaining why, instead of silently doing something different than
-     what's visible. */
+     partitions its storage, which breaks service worker registration.
+     No config here can opt out of that. So: if Red Portal's own tab is
+     detected to be blob-wrapped, clicking Red Proxy instead opens
+     /redproxy (the standalone page, redproxy/index.html + app.js) as a
+     genuine new top-level tab via window.open() -- which is never
+     blob-wrapped itself and therefore never hits this wall -- instead of
+     silently doing something different than what's visible. */
   function isRedPortalItselfBlobWrapped() {
     return location.href.startsWith('blob:');
   }
@@ -2335,6 +2343,10 @@ footer {
     const p = new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = src;
+      // See the matching comment in redproxy/controller-init.js --
+      // dynamically-created scripts default to async=true, which can
+      // execute out of document order.
+      s.async = false;
       s.onload = () => resolve();
       s.onerror = () => reject(new Error('Failed to load ' + src));
       document.head.appendChild(s);
@@ -2365,69 +2377,46 @@ footer {
   const $rpBack      = document.getElementById('rp-back');
   const $rpForward   = document.getElementById('rp-forward');
   const $rpReload    = document.getElementById('rp-reload');
-  const $rpFrameArea = document.getElementById('rp-frame-area');
   const $rpPlaceholder = document.getElementById('rp-frame-placeholder');
+  const $rpFrameEl = document.getElementById('rp-frame');
 
+  let rpController = null;
   let rpFrame = null;
   let rpInitPromise = null;
 
-  /** Lazily loads Scramjet + bare-mux, registers the Red Proxy service
-   *  worker, points bare-mux at this server's own /wisp/ endpoint over
-   *  the fast WASM libcurl transport, and creates the real iframe --
-   *  all exactly once, no matter how many times it's (re-)triggered.
+  /** Lazily loads redproxy/controller-init.js (shared with the
+   *  standalone page and embed.html), initializes the Controller, and
+   *  attaches it to the pre-existing #rp-frame iframe -- all exactly
+   *  once, no matter how many times it's (re-)triggered.
    *
-   *  Safe to register the SW directly from THIS document's own script
-   *  (unlike the old, since-replaced in-page design that broke this
-   *  way -- see Bug #5 in project memory): navigator.serviceWorker
-   *  .register()'s same-origin check is against the CALLING document's
-   *  actual origin, and by the time this ever runs we've already
-   *  confirmed (via isRedPortalItselfBlobWrapped()) that this document
-   *  is NOT a blob -- so its origin genuinely is redportal.dpdns.org. */
+   *  Safe to do this directly from THIS document's own script (unlike
+   *  the old, since-replaced in-page design that broke this way -- see
+   *  Bug #5 in project memory): navigator.serviceWorker.register()'s
+   *  same-origin check is against the CALLING document's actual origin,
+   *  and by the time this ever runs we've already confirmed (via
+   *  isRedPortalItselfBlobWrapped()) that this document is NOT a blob --
+   *  so its origin genuinely is redportal.dpdns.org. */
   function initRedProxyFrame() {
     if (rpInitPromise) return rpInitPromise;
     rpInitPromise = (async () => {
       setStatus('rp-status', 'Loading Red Proxy…');
 
-      await Promise.all([
-        rpLoadScriptOnce('/scram/scramjet.all.js'),
-        rpLoadScriptOnce('/baremux/index.js'),
-      ]);
+      await rpLoadScriptOnce('/redproxy/controller-init.js');
+      rpController = await initRedProxyController();
 
-      const { ScramjetController } = $scramjetLoadController();
-      const scramjet = new ScramjetController({
-        files: {
-          wasm: '/scram/scramjet.wasm.wasm',
-          all:  '/scram/scramjet.all.js',
-          sync: '/scram/scramjet.sync.js',
-        },
-      });
-      // MUST run before touching the service worker at all -- doing it
-      // after throws an unhandled "Failed to execute 'transaction' on
-      // 'IDBDatabase'" that the surrounding try/catch here can't see,
-      // and the proxied content silently never renders (hit and fixed
-      // twice already this project, in two different files -- see
-      // project memory bugs #2/#3 if this ever silently breaks again).
-      scramjet.init();
-
-      await navigator.serviceWorker.register('/redproxy/sw.js', { scope: '/' });
-
-      const connection = new BareMux.BareMuxConnection('/baremux/worker.js');
-      const wispUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/wisp/';
-      if ((await connection.getTransport()) !== '/libcurl/index.mjs') {
-        await connection.setTransport('/libcurl/index.mjs', [{ websocket: wispUrl }]);
-      }
-
-      rpFrame = scramjet.createFrame();
-      rpFrame.frame.title = 'Red Proxy';
-      $rpFrameArea.appendChild(rpFrame.frame);
-
-      rpFrame.addEventListener('urlchange', (e) => {
-        if ($rpAddress) $rpAddress.value = e.url;
+      // The new Frame class doesn't extend EventTarget (unlike the old
+      // ScramjetFrame) -- URL-change notifications come through a
+      // plugin passed into createFrame() instead, matching how
+      // MercuryWorkshop's own reference client uses UrlWatcherPlugin.
+      const urlWatcher = new window.$scramjetUtils.UrlWatcherPlugin((url) => {
+        if ($rpAddress) $rpAddress.value = url;
         $rpBack.disabled = false;
         $rpForward.disabled = false;
         $rpReload.disabled = false;
         $rpPlaceholder.style.display = 'none';
       });
+
+      rpFrame = rpController.createFrame($rpFrameEl, { plugins: [urlWatcher] });
 
       $rpAddress.disabled = false;
       $rpForm.querySelector('button[type="submit"]').disabled = false;

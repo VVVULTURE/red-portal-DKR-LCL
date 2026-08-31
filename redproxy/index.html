@@ -10,51 +10,72 @@
     width: 100%; height: 100%;
     background: #0a0a0a; color: #ffdddd;
     font-family: 'Rajdhani', 'Segoe UI', sans-serif;
-    display: flex; align-items: center; justify-content: center;
+    display: flex; flex-direction: column;
   }
-  .wrap { width: min(92vw, 480px); text-align: center; }
-  h1 {
-    font-size: 2rem; letter-spacing: .08em; text-transform: uppercase;
-    color: #FF2020; margin-bottom: .35rem;
-    text-shadow: 0 0 18px rgba(255,32,32,.44), 0 0 40px rgba(255,32,32,.19);
+  .toolbar {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .55rem .8rem;
+    background: rgba(10,10,16,.9); border-bottom: 1px solid rgba(255,32,32,.16);
+    flex-shrink: 0;
   }
-  p.desc { color: #a88; font-size: .9rem; margin-bottom: 1.5rem; line-height: 1.5; }
-  form { display: flex; gap: .5rem; }
+  .nav-btn {
+    background: transparent; border: 1px solid rgba(255,32,32,.16); color: #a88;
+    border-radius: 6px; width: 2.15rem; height: 2.15rem; font-size: 1.15rem; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: border-color .15s, color .15s;
+  }
+  .nav-btn:hover:not(:disabled) { border-color: #FF2020; color: #ffdddd; }
+  .nav-btn:disabled { opacity: .35; cursor: default; }
+  form { display: flex; gap: .5rem; flex: 1; min-width: 100px; }
   input[type="text"] {
-    flex: 1; padding: .7rem .9rem; font-size: 1rem;
+    flex: 1; min-width: 0; padding: .55rem .8rem; font-size: 1rem;
     background: #1a0d0d; border: 1px solid rgba(255,32,32,.35); border-radius: 6px;
     color: #ffdddd; outline: none;
   }
   input[type="text"]:focus { border-color: #FF2020; }
-  button {
-    padding: .7rem 1.3rem; font-size: 1rem; font-weight: 600;
+  input[type="text"]:disabled { opacity: .5; }
+  button[type="submit"] {
+    padding: .55rem 1.1rem; font-size: 1rem; font-weight: 600;
     background: #FF2020; color: #0a0a0a; border: none; border-radius: 6px;
-    cursor: pointer;
+    cursor: pointer; flex-shrink: 0;
   }
-  button:hover { background: #ff4040; }
-  #rp-status { margin-top: 1rem; min-height: 1.2em; font-size: .85rem; color: #a88; }
-  #rp-status.err { color: #ff6060; }
+  button[type="submit"]:hover:not(:disabled) { background: #ff4040; }
+  button[type="submit"]:disabled { opacity: .5; cursor: default; }
   a.back {
-    display: inline-block; margin-top: 2rem; color: #a88; text-decoration: none; font-size: .85rem;
+    color: #a88; text-decoration: none; font-size: .85rem; flex-shrink: 0; white-space: nowrap;
   }
   a.back:hover { color: #ffdddd; }
+  #rp-status {
+    padding: 0 .8rem; min-height: 1.2em; font-size: .85rem; color: #a88;
+  }
+  #rp-status:empty { display: none; }
+  #rp-status.err { color: #ff6060; }
+  .frame-area { flex: 1; min-height: 0; position: relative; background: #000; }
+  .frame-area iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .frame-placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #a88; font-size: .95rem; text-align: center; padding: 2rem;
+  }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Red Proxy</h1>
-    <p class="desc">Type a URL, or just search — everything runs on Red Portal's own server.</p>
+  <div class="toolbar">
+    <button type="button" id="rp-back" class="nav-btn" title="Back" disabled>‹</button>
+    <button type="button" id="rp-forward" class="nav-btn" title="Forward" disabled>›</button>
+    <button type="button" id="rp-reload" class="nav-btn" title="Reload" disabled>⟳</button>
     <form id="rp-form">
-      <input id="rp-address" type="text" placeholder="Search or enter a URL" autocomplete="off" autofocus>
-      <button type="submit">Go</button>
+      <input id="rp-address" type="text" placeholder="Search or enter a URL" autocomplete="off" spellcheck="false" autofocus disabled>
+      <button type="submit" disabled>Go</button>
     </form>
-    <div id="rp-status"></div>
-    <a class="back" href="/">&larr; Back to Red Portal</a>
+    <a class="back" href="/">&larr; Red Portal</a>
+  </div>
+  <div id="rp-status"></div>
+  <div class="frame-area">
+    <div id="rp-frame-placeholder" class="frame-placeholder"><p>Loading Red Proxy…</p></div>
+    <iframe id="rp-frame" title="Red Proxy"></iframe>
   </div>
 
-  <script src="/scram/scramjet.all.js"></script>
-  <script src="/baremux/index.js"></script>
-  <script src="/redproxy/register-sw.js"></script>
+  <script src="/redproxy/controller-init.js"></script>
   <script src="/redproxy/search.js"></script>
   <script src="/redproxy/app.js"></script>
 </body>

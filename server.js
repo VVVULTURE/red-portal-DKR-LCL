@@ -20,13 +20,34 @@ const path  = require('path');
 const fs    = require('fs');
 const url   = require('url');
 
-/* ── Red Proxy (Scramjet, in-process) ──────────────────────────────
+/* ── Red Proxy (Scramjet Controller, in-process) ──────────────────
    Everything the proxy needs runs inside THIS same process/server --
-   no separate deployment, no third-party proxy or wisp service. See the
-   /redproxy router branch and the 'upgrade' handler further down. */
+   no separate deployment, no third-party proxy or wisp service. Built on
+   MercuryWorkshop's current reference architecture (github.com/
+   MercuryWorkshop/scramjet -- @mercuryworkshop/scramjet-controller +
+   @mercuryworkshop/scramjet-utils + @mercuryworkshop/proxy-transports'
+   direct-client transport, replacing the older @mercuryworkshop/scramjet
+   v1.1.0 + bare-mux SharedWorker design this project used previously).
+   See the /redproxy router branch and the 'upgrade' handler further down.
+
+   scramjetPath still has a real Node-side "./path" export (unlike
+   libcurl-transport below). scramjetControllerPath/scramjetUtilsPath
+   don't have one -- both are pure-ESM packages with no CJS "node"
+   export condition -- but require.resolve() only RESOLVES a path, it
+   never loads/executes the module, so it works for locating their dist/
+   directories regardless. */
 const { scramjetPath } = require('@mercuryworkshop/scramjet/path');
-const { baremuxPath }  = require('@mercuryworkshop/bare-mux/node');
-const { libcurlPath }  = require('@mercuryworkshop/libcurl-transport');
+const scramjetControllerPath = path.dirname(require.resolve('@mercuryworkshop/scramjet-controller'));
+const scramjetUtilsPath      = path.dirname(require.resolve('@mercuryworkshop/scramjet-utils'));
+// libcurl-transport 2.x (unlike 1.x, which shipped a dedicated
+// lib/index.cjs Node entry exporting `libcurlPath` directly) dropped its
+// separate Node-side build entirely -- require()'ing the package's main
+// entry runs the BROWSER bundle's own top-level "environment detection"
+// code, which throws outside a browser/worker context. This project only
+// ever needs the on-disk dist/ directory anyway (to serve it as a static
+// file at /libcurl/ -- server.js never executes this library itself), so
+// require.resolve() gets that path without ever loading the module.
+const libcurlPath = path.dirname(require.resolve('@mercuryworkshop/libcurl-transport'));
 const { server: wispServer, logging: wispLogging } = require('@mercuryworkshop/wisp-js/server');
 
 wispLogging.set_level(wispLogging.NONE);
@@ -35,7 +56,7 @@ Object.assign(wispServer.options, {
   dns_servers: ['1.1.1.3', '1.0.0.3'], // Cloudflare's malware-blocking resolver
 });
 
-/* ── Config ─────────────────────────────────────────────── */
+/* ── Config ────────────────────────────────────────────────────── */
 const PORT       = parseInt(process.env.PORT || '3001', 10);
 const STATIC     = __dirname;           // serve files from the same folder as server.js
 // URL of the bot's HTTP listener, e.g. http://192.168.1.50:3000/post-request
@@ -43,7 +64,7 @@ const BOT_URL    = process.env.BOT_URL    || 'https://boneless-parcel-reputable.
 // Shared secret — must match BOT_SECRET in bot.js to prevent unauthorized posts
 const BOT_SECRET = process.env.BOT_SECRET || '0fffaa699dd1422eac9cf419d1649f8ff9b346d9594450c51987ba8a61003ba3';
 
-/* ── R2-backed folders ──────────────────────────────────────
+/* ── R2-backed folders ──────────────────────────────────────────
    Games/ and Testing/ now live in Cloudflare R2, not on this server's
    disk (see .dockerignore — they're excluded from the Docker build
    entirely). Any request whose path starts with one of these prefixes
@@ -80,7 +101,7 @@ function r2BackedPrefix(pathname) {
   return null;
 }
 
-/* ── R2 bucket listing (auto-discovery) ──────────────────────────
+/* ── R2 bucket listing (auto-discovery) ────────────────────────────
    Separate, READ-ONLY credentials from the ones sync_to_r2.py uses to
    write -- this API token should be scoped to "Object Read" only in
    the Cloudflare dashboard. Used to auto-populate the Games/Testing
@@ -115,7 +136,7 @@ function getS3Client() {
 }
 
 /* ── Locate each game's real index.html and build the auto-populated
-   grid data ────────────────────────────────────────────────────
+   grid data ──────────────────────────────────────────────────────
    THREE layers, fastest first:
 
      0. manifest.json fast path -- sync_to_r2.py writes a relative-path ->
@@ -680,7 +701,7 @@ async function cachedList(key, ttlMs, fetcher) {
   return data;
 }
 
-/* ── Optional overrides ──────────────────────────────────────────
+/* ── Optional overrides ────────────────────────────────────────────
    game-overrides.json (repo root, optional) can override either the
    display name, the exact index.html path, or both, per folder:
      { "Baldis-Basics-Plus": { "name": "Baldi's Basics Plus",
@@ -705,7 +726,7 @@ function getGameOverrides() {
 const httpAgent  = new http.Agent ({ keepAlive: true, maxSockets: 64 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 64 });
 
-/* ── MIME map for static files ──────────────────────────── */
+/* ── MIME map for static files ─────────────────────────────────── */
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.htm':  'text/html; charset=utf-8',
@@ -738,7 +759,7 @@ const MIME = {
   '.wasm': 'application/wasm',
 };
 
-/* ── Cache-Control values per extension ───────────────────── */
+/* ── Cache-Control values per extension ────────────────────────── */
 const CACHE_CONTROL = {
   '.html': 'no-cache',                         // always revalidate HTML
   '.htm':  'no-cache',
@@ -761,7 +782,7 @@ const CACHE_CONTROL = {
   '.otf':  'public, max-age=31536000',
 };
 
-/* ── CORS + framing headers ──────────────────────── *
+/* ── CORS + framing headers ─────────────────────────────────────── *
    Frozen constant instead of a function-per-request. Previously a new
    object was allocated and GC'd on every request. Spread it with
    { ...CORS_HEADERS } when you need to add extra keys.               */
@@ -779,22 +800,23 @@ const CORS_HEADERS = Object.freeze({
   'vary':                          'Origin',
 });
 
-/* ── Red Proxy headers ───────────────────────────────────────
+/* ── Red Proxy headers ─────────────────────────────────────────────
    Cross-Origin-Embedder-Policy:require-corp is what lets Scramjet's WASM
    transport reach full (cross-origin-isolated) speed -- but applying it
    SITE-WIDE would break loading images/audio/video from the R2 asset
    domain (assets.redportal.dpdns.org doesn't send a matching CORP header),
    which is exactly the CORS_HEADERS above are permissive on purpose for.
-   So this header set is scoped ONLY to /scram/, /libcurl/, /baremux/, and
-   /redproxy/ -- everything else on the site keeps CORS_HEADERS untouched. */
+   So this header set is scoped ONLY to /scram/, /controller/, /libcurl/,
+   and /redproxy/ -- everything else on the site keeps CORS_HEADERS
+   untouched. */
 const SCRAMJET_HEADERS = Object.freeze({
   'cross-origin-opener-policy':   'same-origin',
   'cross-origin-embedder-policy': 'require-corp',
 });
 
 /* Serve one static file from an arbitrary root dir (not necessarily
-   STATIC) with SCRAMJET_HEADERS applied -- used for scramjet/libcurl/
-   baremux's own bundled files and the /redproxy/ page itself.
+   STATIC) with SCRAMJET_HEADERS applied -- used for scramjet/controller/
+   libcurl's own bundled files and the /redproxy/ page itself.
 
    `isolate` defaults to true (apply SCRAMJET_HEADERS) but MUST be passed
    as false for sw.js specifically -- see the caller in the router for why:
@@ -833,7 +855,7 @@ function serveScramjetAsset(req, res, rootDir, relPath, extraHeaders, isolate = 
   });
 }
 
-/* ── Parse a JSON request body ──────────────────────── */
+/* ── Parse a JSON request body ─────────────────────────────────── */
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -846,7 +868,7 @@ function parseJsonBody(req) {
   });
 }
 
-/* ── Forward a request payload to the local bot ────────────── */
+/* ── Forward a request payload to the local bot ────────────────── */
 function forwardToBot(payload) {
   return new Promise((resolve, reject) => {
     const body    = JSON.stringify(payload);
@@ -882,7 +904,7 @@ function forwardToBot(payload) {
   });
 }
 
-/* ── Handle POST /api/request ────────────────────── */
+/* ── Handle POST /api/request ──────────────────────────────────── */
 async function handleGameRequest(req, res) {
   if (req.method !== 'POST') {
     res.writeHead(405, { 'content-type': 'application/json', ...CORS_HEADERS });
@@ -935,7 +957,7 @@ async function handleGameRequest(req, res) {
 }
 
 
-/* ── In-memory cache for index.html (the SPA shell) ────────── *
+/* ── In-memory cache for index.html (the SPA shell) ────────────── *
    index.html is read from disk once and kept in memory.  Every SPA
    fallback (404 → index.html) was previously a full fs.readFile call;
    now it's a Buffer copy — orders of magnitude faster under load.    */
@@ -1195,7 +1217,7 @@ async function handleR2Status(req, res) {
 
 
 
-/* ── Main request router ──────────────────────── */
+/* ── Main request router ───────────────────────────────────────── */
 const server = http.createServer((req, res) => {
   const parsed   = url.parse(req.url, true);
   const pathname = parsed.pathname;
@@ -1243,18 +1265,27 @@ const server = http.createServer((req, res) => {
     return handleEmulationList(req, res);
   }
 
-  /* ── Red Proxy — Scramjet's own bundled files + the /redproxy/ page ──
-     All served from this same process (see requires + SCRAMJET_HEADERS
-     above). Checked before the R2 redirect/static blocks below so it can
-     never collide with a real Games/Testing/asset path. ── */
+  /* ── Red Proxy — Scramjet Controller's own bundled files + the
+     /redproxy/ page ── All served from this same process (see requires +
+     SCRAMJET_HEADERS above). Checked before the R2 redirect/static
+     blocks below so it can never collide with a real Games/Testing/asset
+     path. ── */
+  if (pathname === '/scram/scramjet-utils.js') {
+    // scramjet-utils lives in a SEPARATE npm package/directory from the
+    // core scramjet bundle below, but the client (controller-init.js,
+    // matching MercuryWorkshop's own reference bootstrap's path layout)
+    // expects it under the same /scram/ prefix -- special-cased ahead of
+    // the generic /scram/ handler for that one file.
+    return serveScramjetAsset(req, res, scramjetUtilsPath, 'scramjet-utils.js');
+  }
   if (pathname.startsWith('/scram/')) {
     return serveScramjetAsset(req, res, scramjetPath, pathname.slice('/scram/'.length));
   }
+  if (pathname.startsWith('/controller/')) {
+    return serveScramjetAsset(req, res, scramjetControllerPath, pathname.slice('/controller/'.length));
+  }
   if (pathname.startsWith('/libcurl/')) {
     return serveScramjetAsset(req, res, libcurlPath, pathname.slice('/libcurl/'.length));
-  }
-  if (pathname.startsWith('/baremux/')) {
-    return serveScramjetAsset(req, res, baremuxPath, pathname.slice('/baremux/'.length));
   }
   if (pathname === '/redproxy' || pathname === '/redproxy/' || pathname.startsWith('/redproxy/')) {
     const rel = (pathname === '/redproxy' || pathname === '/redproxy/')
@@ -1265,7 +1296,7 @@ const server = http.createServer((req, res) => {
     // "/redproxy/" directory -- Scramjet's codec rewrites proxied URLs to
     // live at the site root, not under this folder. A script's own
     // directory is the max scope a browser allows by default, so this
-    // header is required to explicitly widen it. See register-sw.js.
+    // header is required to explicitly widen it. See controller-init.js.
     const extra = isSw ? { 'service-worker-allowed': '/' } : undefined;
     // sw.js must NOT get SCRAMJET_HEADERS (isolate: false) -- a service
     // worker inherits COEP/COOP from its own script response, and at root
@@ -1314,7 +1345,7 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res, filePath, !!r2BackedPrefix(pathname));
 });
 
-/* ── Red Proxy — wisp WebSocket endpoint ─────────────────
+/* ── Red Proxy — wisp WebSocket endpoint ─────────────────────────
    No 'upgrade' handler existed here before this -- Node's default
    behavior for an unhandled upgrade request is to just close the
    connection (see the Node http docs), which is exactly what the
@@ -1350,9 +1381,9 @@ function selfPing() {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('');
-  console.log('  ╔════════════════════════════════════════╗');
+  console.log('  ╔══════════════════════════════════════════╗');
   console.log('  ║         Red Portal — Local Server        ║');
-  console.log('  ╚════════════════════════════════════════╝');
+  console.log('  ╚══════════════════════════════════════════╝');
   console.log('');
   console.log(`  🌐  Open:     http://localhost:${PORT}`);
   console.log(`  📨  Requests: http://localhost:${PORT}/api/request`);
