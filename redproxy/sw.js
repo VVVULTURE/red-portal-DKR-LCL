@@ -26,6 +26,21 @@ importScripts('/controller/controller.sw.js');
 
 addEventListener('fetch', (event) => {
   if ($scramjetController.shouldRoute(event)) {
-    event.respondWith($scramjetController.route(event));
+    event.respondWith(
+      $scramjetController.route(event).catch((err) => {
+        // route() can reject (e.g. for a nested iframe's own document
+        // request under some edge cases) -- respondWith()'ing a rejected
+        // promise with no catch surfaces only a generic, undiagnosable
+        // "ServiceWorker intercepted the request and encountered an
+        // unexpected error" to the page, with zero detail about WHAT
+        // failed or why. Log the real error, then fall back to a plain
+        // passthrough fetch rather than leaving the request hanging.
+        console.error('[redproxy sw] route() failed for', event.request.url, err && err.stack || err);
+        return fetch(event.request).catch((fetchErr) => {
+          console.error('[redproxy sw] fallback fetch also failed for', event.request.url, fetchErr);
+          return new Response('Red Proxy error: ' + (err && err.message || err), { status: 502 });
+        });
+      })
+    );
   }
 });

@@ -1287,6 +1287,31 @@ const server = http.createServer((req, res) => {
   if (pathname.startsWith('/libcurl/')) {
     return serveScramjetAsset(req, res, libcurlPath, pathname.slice('/libcurl/'.length));
   }
+  /* ── Scramjet Controller's internal proxy prefix, reaching this SERVER
+     directly ── "/~/sj/" (config.prefix's real, stable default -- confirmed
+     by reading controller.api.js's dist) is where every actual proxied
+     request is SUPPOSED to be intercepted and answered by the Red Proxy
+     service worker in the browser, never by hitting this raw HTTP server
+     at all. It reaching here at all means some request escaped SW control
+     entirely -- a genuine, known browser-platform limitation: Service
+     Workers don't control documents created via document.write() into an
+     about:blank iframe (a pattern some ad/game-loader scripts still use),
+     so THEIR resource requests go out as real, uncontrolled network
+     requests instead of being routed through the proxy. There's no way to
+     make those actually work from here (that would need server-side
+     rewriting, a fundamentally different proxy architecture) -- but
+     without this check they'd fall through to the generic SPA-fallback
+     below and get back Red Portal's own homepage HTML with a 200 status,
+     which is actively worse: a <script> tag expecting JS gets "expected
+     expression, got '<'" and a <link rel=stylesheet> gets rejected for
+     the wrong MIME type, both confusingly EVENTUALLY-successful-looking
+     failures instead of a normal, recognizable network error. Answering
+     with a real 404 here at least fails the way page code actually
+     expects failures to look (onerror handlers, catch blocks). */
+  if (pathname.startsWith('/~/sj/')) {
+    res.writeHead(404, { 'content-type': 'text/plain', ...CORS_HEADERS });
+    return res.end('This request needed to go through the Red Proxy service worker, but reached the server directly instead (the service worker doesn\'t control this browsing context) -- not proxyable from here.');
+  }
   if (pathname === '/redproxy' || pathname === '/redproxy/' || pathname.startsWith('/redproxy/')) {
     const rel = (pathname === '/redproxy' || pathname === '/redproxy/')
       ? 'index.html'
