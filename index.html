@@ -987,9 +987,21 @@ label.section-label {
 }
 
 /* ── 21b. RED PROXY (full-bleed, no .section-inner — it needs the
-   whole viewport width, not the site's centered max-width column) ─── */
+   whole viewport width, not the site's centered max-width column) ───
+   !important on display is required here, not stylistic -- the generic
+   ".js .section.active { display: block !important; }" rule further up
+   otherwise wins regardless of this selector's higher specificity,
+   since an !important declaration always beats a non-!important one
+   no matter how specific the loser is. Without this, #redproxy stays
+   display:block, .rp-frame-area's "flex: 1" never resolves against a
+   flex container, it collapses to 0 height, and the absolutely-
+   positioned iframe (sized via inset:0 off that 0-height parent) also
+   collapses to 0 height -- it's still genuinely there and genuinely
+   loading real proxied content (confirmed: title/DOM/network requests
+   all correct), just invisible at zero height, with the page's own
+   background showing through where it should be. */
 #redproxy.section.active {
-  display: flex;
+  display: flex !important;
   flex-direction: column;
   height: calc(100vh - var(--header-h));
 }
