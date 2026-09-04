@@ -2621,6 +2621,43 @@ footer {
           'PatchedURL.prototype=OrigURL.prototype;' +
           'Object.setPrototypeOf(PatchedURL,OrigURL);' + // static methods (createObjectURL etc.) still work
           'window.URL=PatchedURL;' +
+          // Some loaders build URLs via plain string concatenation instead
+          // of the URL constructor -- e.g. `window.location + "audio/x.mp3"`
+          // (A Dark Room's audio.js does exactly this). That relies on
+          // location's implicit ToString giving a directory-style URL to
+          // concatenate onto; once this document is a blob:, ToString still
+          // gives the real blob href (confirmed: Location's string coercion
+          // is a spec'd exotic operation that bypasses the prototype chain
+          // entirely -- Location.prototype.toString genuinely cannot be
+          // overridden for `+`/template-literal coercion, by design), so the
+          // relative path lands directly after the blob UUID with no
+          // separator. A well-formed blob: URL is always exactly
+          // "blob:<origin>/<uuid>" with nothing after the UUID, so any
+          // trailing text after that shape is unambiguously this exact bug --
+          // repair it by re-resolving that trailing text against REAL_BASE,
+          // one layer down at fetch()/Request() instead of at URL/location.
+          'var BLOB_UUID_RE=/^blob:.+?\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(.+)$/i;' +
+          'function repairMangledBlobUrl(u){' +
+            'var m=typeof u==="string"&&u.match(BLOB_UUID_RE);' +
+            'if(!m)return u;' +
+            'try{return new OrigURL(m[1],REAL_BASE).href;}catch(e){return u;}' +
+          '}' +
+          'var OrigFetch=window.fetch;' +
+          'window.fetch=function(input,init){' +
+            'if(typeof input==="string")input=repairMangledBlobUrl(input);' +
+            'else if(input&&typeof input.url==="string"){' +
+              'var fixed=repairMangledBlobUrl(input.url);' +
+              'if(fixed!==input.url)input=new Request(fixed,input);' +
+            '}' +
+            'return OrigFetch.call(this,input,init);' +
+          '};' +
+          'var OrigRequest=window.Request;' +
+          'function PatchedRequest(input,init){' +
+            'if(typeof input==="string")input=repairMangledBlobUrl(input);' +
+            'return new OrigRequest(input,init);' +
+          '}' +
+          'PatchedRequest.prototype=OrigRequest.prototype;' +
+          'window.Request=PatchedRequest;' +
           '})();<\/script>';
 
         let out;
