@@ -1475,6 +1475,7 @@ footer {
   <!-- Primary navigation -->
   <nav id="mainNav" aria-label="Main navigation">
     <a class="active" href="#games"   data-section="games">🎮 Games</a>
+    <a href="#apps"                  data-section="apps">📱 Apps</a>
     <a href="#emulation"             data-section="emulation">🕹️ Emulation</a>
     <a href="#form"                  data-section="form">📋 Requests</a>
     <a href="#executor"              data-section="executor">💻 Executor</a>
@@ -1549,7 +1550,7 @@ footer {
 
 <!-- ═══════════════════════════════
      STICKY SEARCH BAR
-     (visible only on Games / Testing sections)
+     (visible only on Games / Apps / Testing / Emulation sections)
 ═══════════════════════════════ -->
 <div id="search-bar-wrap" role="search" aria-label="Search games">
   <div class="search-wrap">
@@ -1630,6 +1631,19 @@ footer {
         <a class="game-btn" href="Games/Vex-6/index.html" target="_blank" rel="noopener noreferrer"><span>Vex 6</span></a>
         <a class="game-btn" href="Games/Wordle-Unlimited/index.html" target="_blank" rel="noopener noreferrer"><span>Wordle Unlimited</span></a>
       </div>
+    </div>
+  </section>
+
+  <!-- ── APPS ──
+       Works exactly like the Games / Testing grids: auto-populated from the
+       R2 bucket's Apps/ prefix via /api/apps (see renderGameGrid + server.js).
+       Drop a new folder containing an index.html into Apps/ in the bucket
+       and it appears here on its own within a few seconds -- no index.html
+       edit, no redeploy. Ships empty until the bucket has something. -->
+  <section id="apps" class="section" aria-label="Apps">
+    <h2>📱 Apps</h2>
+    <div class="card grid-card">
+      <div class="games-grid" id="appsGrid"></div>
     </div>
   </section>
 
@@ -2225,7 +2239,7 @@ footer {
   /* ═══════════════════════════════════════════════════════════════
      4. NAVIGATION
   ═══════════════════════════════════════════════════════════════ */
-  const SEARCH_SECTIONS = new Set(['games', 'Testing', 'emulation']);
+  const SEARCH_SECTIONS = new Set(['games', 'apps', 'Testing', 'emulation']);
   const $searchBarWrap = document.getElementById('search-bar-wrap');
 
   // Cache these NodeLists once — avoids a full DOM walk on every nav click
@@ -2494,7 +2508,7 @@ footer {
   // grid update, and reapplies whatever's currently typed in the box.
   let _searchCache = [];
   function rebuildSearchCache() {
-    _searchCache = [...document.querySelectorAll('#gamesGrid .game-btn, #preLaunchGrid .game-btn, #emulationGrid .game-btn')]
+    _searchCache = [...document.querySelectorAll('#gamesGrid .game-btn, #appsGrid .game-btn, #preLaunchGrid .game-btn, #emulationGrid .game-btn')]
       .map(btn => ({ el: btn, name: (btn.querySelector('span')?.textContent || '').toLowerCase() }));
     applySearchFilter();
   }
@@ -2624,7 +2638,7 @@ footer {
   }
 
   // Delegate game grid clicks (all grids share one handler each)
-  ['gamesGrid', 'preLaunchGrid', 'emulationGrid'].forEach(id => {
+  ['gamesGrid', 'appsGrid', 'preLaunchGrid', 'emulationGrid'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', e => {
@@ -2636,9 +2650,9 @@ footer {
   });
 
   /* ═══════════════════════════════════════════════════════════════
-     GAMES / TESTING GRIDS  (auto-populated from R2 via /api/games and
-     /api/testing). Drop a new game folder into Games/ or Testing/ in
-     the bucket -- it shows up here automatically within a few seconds,
+     GAMES / APPS / TESTING GRIDS  (auto-populated from R2 via /api/games,
+     /api/apps and /api/testing). Drop a new folder into Games/, Apps/ or
+     Testing/ in the bucket -- it shows up here automatically within a few seconds,
      no index.html edit, redeploy, OR manual page reload needed (see
      the polling loop below). hrefs from the API are already
      fully-qualified absolute URLs.
@@ -2690,6 +2704,11 @@ footer {
       .finally(() => { $grid.dataset.fetching = '0'; });
   }
 
+  const APPS_EMPTY_MSG =
+    '<p style="color:var(--text-muted);font-size:.9rem;line-height:1.65;">' +
+    'No apps yet. Drop a folder containing an <code>index.html</code> into ' +
+    '<code>Apps/</code> in the R2 bucket and it appears here automatically.</p>';
+
   const EMULATION_EMPTY_MSG =
     '<p style="color:var(--text-muted);font-size:.9rem;line-height:1.65;">' +
     'No ROMs yet. Drop a ROM file into <code>Emulation/&lt;Console&gt;/</code> ' +
@@ -2698,6 +2717,7 @@ footer {
 
   function refreshAllGrids() {
     renderGameGrid('gamesGrid', '/api/games');
+    renderGameGrid('appsGrid', '/api/apps', APPS_EMPTY_MSG);
     renderGameGrid('preLaunchGrid', '/api/testing');
     renderGameGrid('emulationGrid', '/api/emulation', EMULATION_EMPTY_MSG);
   }

@@ -34,14 +34,14 @@ services:
       - BOT_SECRET=0fffaa699dd1422eac9cf419d1649f8ff9b346d9594450c51987ba8a61003ba3
 
       # Your R2 bucket's public custom domain (no https://, no trailing slash).
-      # Games/ and Testing/ requests get redirected here instead of served
+      # Games/, Testing/ and Apps/ requests get redirected here instead of served
       # from local disk — leave blank to fall back to local-disk serving.
       - R2_PUBLIC_DOMAIN=assets.redportal.dpdns.org
 
       # Comma-separated top-level folders that should redirect to R2.
-      # Defaults to "Games,Testing" if not set — only override if you
-      # add/rename a folder that should also live on R2.
-      # - R2_BACKED_PREFIXES=Games,Testing
+      # Defaults to "Games,Testing,Apps,Movies,Emulation" if not set — only
+      # override if you add/rename a folder that should also live on R2.
+      # - R2_BACKED_PREFIXES=Games,Testing,Apps,Movies,Emulation
 
     restart: unless-stopped
 

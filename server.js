@@ -65,8 +65,8 @@ const BOT_URL    = process.env.BOT_URL    || 'https://boneless-parcel-reputable.
 const BOT_SECRET = process.env.BOT_SECRET || '0fffaa699dd1422eac9cf419d1649f8ff9b346d9594450c51987ba8a61003ba3';
 
 /* ── R2-backed folders ──────────────────────────────────────────
-   Games/ and Testing/ now live in Cloudflare R2, not on this server's
-   disk (see .dockerignore — they're excluded from the Docker build
+   Games/, Testing/ and Apps/ now live in Cloudflare R2, not on this
+   server's disk (see .dockerignore — they're excluded from the Docker build
    entirely). Any request whose path starts with one of these prefixes
    gets a 302 redirect straight to R2, using the exact same relative
    path the sync script uploaded objects under. Once the browser lands
@@ -75,7 +75,7 @@ const BOT_SECRET = process.env.BOT_SECRET || '0fffaa699dd1422eac9cf419d1649f8ff9
    in index.html or inside any individual game's files need to change.
 
    If R2_PUBLIC_DOMAIN is left unset, this feature is a no-op and the
-   server falls back to serving Games/Testing from local disk exactly
+   server falls back to serving Games/Testing/Apps from local disk exactly
    like before — safe default for local dev without R2 configured.   */
 // Self-ping — keeps the Render free-tier instance from spinning down due to
 // inactivity. Every SELF_PING_INTERVAL_MS, the server requests its own
@@ -86,7 +86,7 @@ const SELF_PING_URL           = process.env.SELF_PING_URL || 'https://redportal.
 const SELF_PING_INTERVAL_MS   = parseInt(process.env.SELF_PING_INTERVAL_MS || String(10 * 60 * 1000), 10); // 10 minutes
 
 const R2_PUBLIC_DOMAIN   = process.env.R2_PUBLIC_DOMAIN || '';
-const R2_BACKED_PREFIXES = (process.env.R2_BACKED_PREFIXES || 'Games,Testing,Movies,Emulation')
+const R2_BACKED_PREFIXES = (process.env.R2_BACKED_PREFIXES || 'Games,Testing,Apps,Movies,Emulation')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
@@ -1041,8 +1041,8 @@ function serveStatic(req, res, filePath, isR2Backed) {
 }
 
 /* ── Build a fully-qualified absolute origin from the incoming request ──
-   Every href handed back by /api/games, /api/testing, /api/movies, and
-   /api/emulation is a complete absolute URL (https://redportal.dpdns.org/Games/...), never
+   Every href handed back by /api/games, /api/testing, /api/apps, /api/movies,
+   and /api/emulation is a complete absolute URL (https://redportal.dpdns.org/Games/...), never
    a bare relative path -- relative paths were breaking asset loading in
    some games once opened as a blob: URL with an injected <base> tag,
    since root-relative asset references (src="/assets/x.png") resolve
@@ -1083,10 +1083,10 @@ async function handleMovies(req, res, fresh) {
   }
 }
 
-/* ── GET /api/games and /api/testing — auto-populate the game grids
-   straight from what's actually in the R2 bucket. Dropping a new game
-   folder into Games/ or Testing/ and reloading Red Portal is all it
-   takes -- no index.html edits, no redeploy. See listR2GameFolders()
+/* ── GET /api/games, /api/testing and /api/apps — auto-populate the
+   grids straight from what's actually in the R2 bucket. Dropping a new
+   folder into Games/, Testing/ or Apps/ and reloading Red Portal is all
+   it takes -- no index.html edits, no redeploy. See listR2GameFolders()
    for how the entry-point index.html is located inside each folder.  */
 async function handleGameList(req, res, topPrefix, fresh) {
   try {
@@ -1178,6 +1178,7 @@ async function handleR2Status(req, res) {
       totalEntries: keys.length,
       gamesEntries: keys.filter(k => k.startsWith('Games/')).length,
       testingEntries: keys.filter(k => k.startsWith('Testing/')).length,
+      appsEntries: keys.filter(k => k.startsWith('Apps/')).length,
       emulationEntries: keys.filter(k => k.startsWith('Emulation/')).length,
     };
   } catch (e) {
@@ -1193,7 +1194,7 @@ async function handleR2Status(req, res) {
   }
 
   if (client && !result['manifest.json'].ok) {
-    for (const prefix of ['Games/', 'Testing/']) {
+    for (const prefix of ['Games/', 'Testing/', 'Apps/']) {
       const started = Date.now();
       try {
         const folders = await listTopLevelFolders(prefix);
@@ -1251,13 +1252,16 @@ const server = http.createServer((req, res) => {
     return handleR2Status(req, res);
   }
 
-  /* ── /api/games, /api/testing — auto-populated game grid data ──
+  /* ── /api/games, /api/testing, /api/apps — auto-populated grid data ──
      ?fresh=1 bypasses the in-memory cache for this one request. ── */
   if (pathname === '/api/games') {
     return handleGameList(req, res, 'Games/', parsed.query.fresh === '1');
   }
   if (pathname === '/api/testing') {
     return handleGameList(req, res, 'Testing/', parsed.query.fresh === '1');
+  }
+  if (pathname === '/api/apps') {
+    return handleGameList(req, res, 'Apps/', parsed.query.fresh === '1');
   }
 
   /* ── /api/emulation — auto-populated Emulation grid data ── */
