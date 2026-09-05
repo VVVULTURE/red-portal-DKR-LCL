@@ -81,6 +81,67 @@ function setStatus(message, isError) {
    already warmed. */
 const STEP_TIMEOUT_MS = 30000;
 
+/* Keeping the service worker alive
+   --------------------------------
+   The worker holds the set of proxied URL prefixes it should intercept in
+   a plain module-level array, built up from the $controller$init message
+   each Controller sends it. That array is ordinary in-memory state, so a
+   browser terminating the worker for being idle (Chrome does this after
+   roughly 30 seconds) silently empties it.
+
+   When the worker is next started -- by, say, the very navigation we
+   wanted proxied -- its shouldRoute() finds no matching prefix, declines
+   to intercept, and the request goes out to the real network. It then
+   lands on this server's /redproxy/sj/ guard instead of the proxied site.
+   Scramjet recovers from this by having the restarted worker ask every
+   client to re-send its message port, but that only happens 100ms after
+   startup (see the "the only way to know if a service worker has suddenly
+   died" comment in the controller's sw.ts), which is far too late for the
+   request that did the waking.
+
+   So don't let it go idle in the first place: delivering a message event
+   resets the worker's idle timer, and this page is only ever open while
+   someone is actually using the proxy. The interval is well inside
+   Chrome's window, and unrecognized messages are ignored by the worker's
+   own handler, so this costs nothing but the wakeup.
+
+   This is not specific to being blob-embedded. It would strand anyone who
+   left the Red Proxy tab open for half a minute before typing a URL. */
+const HEARTBEAT_MS = 10000;
+
+/* If the worker did die anyway (memory pressure, a laptop resuming from
+   sleep), the Controller re-registers its prefix when the worker asks it
+   to. Navigating during that window would race it, so a navigation waits
+   this long after a revive before going ahead. */
+const REVIVE_SETTLE_MS = 400;
+
+let reviveSettled = Promise.resolve();
+
+function watchForServiceWorkerRevival() {
+  if (!navigator.serviceWorker) return;
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (!event.data || !event.data.$controller$swrevive) return;
+    // The Controller answers this same event by re-sending its port. Hold
+    // navigations briefly so one cannot overtake that handshake.
+    reviveSettled = new Promise((resolve) => setTimeout(resolve, REVIVE_SETTLE_MS));
+  });
+}
+
+function startServiceWorkerHeartbeat(serviceworker) {
+  const ping = () => {
+    try {
+      serviceworker.postMessage({ $redproxy$keepalive: Date.now() });
+    } catch (_) { /* worker replaced or gone; the revive path covers it */ }
+  };
+  ping();
+  setInterval(ping, HEARTBEAT_MS);
+  // Coming back to a backgrounded tab is exactly when the worker is most
+  // likely to have been reclaimed, and throttled timers may have stopped.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) ping();
+  });
+}
+
 /** Runs one boot step, showing which step is in flight and failing loudly
  *  if it never settles.
  *
@@ -264,6 +325,11 @@ function boot() {
 
     frame = controller.createFrame($frameEl, { plugins: [urlWatcher] });
 
+    // Only now that a Controller exists (and has registered its prefix
+    // with the worker) is there anything worth keeping alive.
+    watchForServiceWorkerRevival();
+    startServiceWorkerHeartbeat(serviceworker);
+
     $address.disabled = false;
     $go.disabled = false;
     setStatus('');
@@ -294,6 +360,9 @@ async function navigate(input) {
 
   try {
     setStatus('');
+    // No-op unless the worker was revived a moment ago, in which case this
+    // waits for it to have our prefix back before we navigate into it.
+    await reviveSettled;
     await frame.go(toTargetUrl(value));
   } catch (err) {
     console.error('[redproxy] navigation failed', err);

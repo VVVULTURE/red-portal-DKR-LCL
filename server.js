@@ -1327,8 +1327,70 @@ const server = http.createServer((req, res) => {
      static branch below, which would otherwise try to read it off disk
      and answer with a bare, unexplained "Not found". */
   if (pathname.startsWith('/redproxy/sj/')) {
-    res.writeHead(404, { 'content-type': 'text/plain', ...CORS_HEADERS });
-    return res.end('This request needed to go through the Red Proxy service worker, but reached the server directly instead (the service worker doesn\'t control this browsing context) -- not proxyable from here.');
+    /* There is one recoverable way to end up here, and it is common enough
+       to be worth healing rather than reporting. The service worker keeps
+       the list of prefixes it should intercept in memory, so a browser
+       terminating it for being idle empties that list; the next proxied
+       navigation starts the worker again, but shouldRoute() runs before
+       the worker has been handed the prefixes back, so that one request
+       escapes to the network and arrives here. By the time this response
+       is parsed, the worker is running again and has been re-primed --
+       simply asking for the same URL a second time succeeds.
+
+       frame.js keeps the worker warm precisely so this stays rare, but a
+       worker can still be reclaimed under memory pressure or across a
+       sleep/resume, so retry a bounded number of times before giving up.
+       The counter lives in the fragment, which never reaches this server
+       and so cannot disturb the proxied URL's own query string.
+
+       Only for NAVIGATIONS. A subresource that escaped (the classic case
+       being a document.write()n about:blank iframe, which no service
+       worker can ever control) must keep getting the plain-text 404: a
+       <script> or stylesheet handed an HTML retry page would fail in a
+       far more confusing way than a clean network error. */
+    const dest = req.headers['sec-fetch-dest'];
+    const isNavigation = dest === 'document' || dest === 'iframe' ||
+                         (!dest && req.headers['sec-fetch-mode'] === 'navigate');
+
+    if (!isNavigation) {
+      res.writeHead(404, { 'content-type': 'text/plain', ...CORS_HEADERS });
+      return res.end('This request needed to go through the Red Proxy service worker, but reached the server directly instead (the service worker doesn\'t control this browsing context) -- not proxyable from here.');
+    }
+
+    res.writeHead(503, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      ...CORS_HEADERS,
+    });
+    return res.end(`<!doctype html>
+<meta charset="utf-8">
+<title>Reconnecting…</title>
+<style>
+  html,body{height:100%;margin:0;background:#0a0a0a;color:#ffdddd;
+    font-family:'Rajdhani','Segoe UI',system-ui,sans-serif}
+  div{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    text-align:center;padding:2rem;font-size:.95rem;line-height:1.5}
+  b{color:#ff6060;font-weight:600}
+</style>
+<div id="m">Reconnecting to the Red Proxy&hellip;</div>
+<script>
+(function () {
+  var MAX = 2;
+  var m = /^#rp-retry-(\\d+)$/.exec(location.hash);
+  var n = m ? parseInt(m[1], 10) : 0;
+  if (n < MAX) {
+    setTimeout(function () {
+      location.hash = 'rp-retry-' + (n + 1);
+      location.reload();
+    }, 700);
+    return;
+  }
+  document.getElementById('m').innerHTML =
+    '<span><b>The Red Proxy service worker did not pick this up.</b><br><br>' +
+    'This page was requested straight from the server instead of going through the ' +
+    'proxy, which cannot work. Reload the Red Proxy tab to start it again.</span>';
+})();
+</script>`);
   }
   if (pathname === '/redproxy' || pathname === '/redproxy/' || pathname.startsWith('/redproxy/')) {
     const rel = (pathname === '/redproxy' || pathname === '/redproxy/')
