@@ -1084,6 +1084,12 @@ label.section-label {
    site. It did not arise while the proxy lived in its own wrapper
    document, which brought an opaque background of its own. */
 body.rp-open #theme-bg { display: none; }
+
+/* Same reasoning for the scanline overlay, which is also fixed and
+   full-viewport and so also lands on top of the proxied page -- a faint
+   grid over somebody else's website. Both come back the moment another
+   section is shown. */
+body.rp-open::before { display: none; }
 .rp-frame-area iframe {
   position: absolute;
   inset: 0;
