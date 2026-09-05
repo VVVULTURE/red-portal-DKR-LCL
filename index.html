@@ -1069,6 +1069,16 @@ label.section-label {
   min-height: 0; /* required so a flex child can actually shrink/scroll instead of overflowing */
   position: relative;
   background: #000;
+  /* Lifts the proxied page above #theme-bg, the fixed full-viewport
+     wallpaper layer (z-index 0). Both are positioned, so without this
+     they paint in DOM order and the wallpaper -- which comes later --
+     shows straight through the proxied site, since most pages draw no
+     background of their own. The wallpaper is still meant to show through
+     the translucent toolbar above, exactly as it does elsewhere in Red
+     Portal; it is only the page viewport that has to be opaque. This did
+     not arise while the proxy lived in its own wrapper document, which
+     brought an opaque background with it. */
+  z-index: 1;
 }
 .rp-frame-area iframe {
   position: absolute;
