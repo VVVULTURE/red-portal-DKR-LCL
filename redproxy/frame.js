@@ -1,30 +1,41 @@
 'use strict';
 /**
- * Red Proxy — embedded proxy runtime
- * ===================================
- * This file runs inside frame.html, which Red Portal's "Red Proxy" tab
- * embeds as an <iframe> pointing at an ABSOLUTE https://<portal>/ URL.
+ * Red Proxy — proxy engine and launcher
+ * ======================================
+ * Loaded into Red Portal's own document (index.html) when the Red Proxy
+ * tab is opened, and by the standalone /redproxy/frame.html page. Both
+ * hosts give it the same toolbar markup and it drives them identically.
  *
- * Why an iframe, and why this file is self-contained
- * --------------------------------------------------
- * Red Portal is frequently opened through an external launcher that
- * fetches its HTML and re-hosts it as a blob: URL. A blob: URL carries the
- * origin of the page that CREATED it, so in that situation Red Portal's
- * own document is running on the launcher's origin -- not the portal's.
- * navigator.serviceWorker.register() rejects with SecurityError whenever
- * the requested scope's origin differs from the calling document's origin,
- * and no header, config value or <base> tag changes that: it is a flat
- * same-origin rule. So the proxy can never boot from Red Portal's own
- * document in the blob case.
+ * No iframes anywhere
+ * -------------------
+ * The page that owns this script IS the engine: it registers the service
+ * worker, builds the Controller and the libcurl transport, and answers
+ * every proxied request the worker forwards to it. Proxied pages open as
+ * real, top-level tabs at the Controller's own prefix, so nothing is ever
+ * rendered inside Red Portal. Two consequences worth knowing:
  *
- * Putting the entire stack behind an absolute-URL iframe sidesteps that
- * completely. THIS document is always served from the portal's real
- * origin over https, whatever the parent happens to be, so registration
- * here is an ordinary same-origin registration. The parent page does not
- * participate at all -- it owns no proxy state, holds no controller, and
- * needs no postMessage bridge, which is also why the toolbar lives in here
- * rather than up in index.html. One code path serves both the normal tab
- * and the blob tab; there is no second mode to keep working.
+ *   - Sites that refuse to be framed are no longer a problem at all,
+ *     because nothing is framed.
+ *   - This page has to stay open. It is the engine; close it and the
+ *     opened tabs lose the Controller that serves them.
+ *
+ * The one thing a browser will not allow is showing the target's own URL
+ * in the address bar of those tabs -- a document can only ever display a
+ * URL on the origin that served it, which is what stops sites spoofing
+ * each other. READABLE_CODEC below is the next best thing: it keeps the
+ * target legible inside the proxied address instead of percent-mangled.
+ *
+ * Why a blob: page can never be the engine
+ * ----------------------------------------
+ * Red Portal is often opened through an external launcher that re-hosts
+ * it as a blob: URL. A blob: URL does inherit the origin of whoever
+ * created it, so a blob made by Red Portal itself really is on the
+ * portal's origin -- but that still does not help: a blob: document
+ * cannot use service workers at all. Registering from one fails with
+ * InvalidStateError ("the document is in an invalid state"), and even
+ * getRegistrations() throws. Both were confirmed directly in Chrome.
+ * So when Red Portal finds itself blob-wrapped it opens a real
+ * portal-origin tab to act as the engine instead (see index.html).
  *
  * Cross-origin isolation is deliberately not required. crossOriginIsolated
  * can never be true when the top-level document belongs to someone else,
@@ -69,6 +80,46 @@ const LIBCURL_CLIENT    = '/libcurl/index.js';
 
 const SEARCH_TEMPLATE = 'https://www.google.com/search?q=%s';
 
+/* Keeps the target URL legible in the address bar.
+   ------------------------------------------------
+   Scramjet's default codec is encodeURIComponent, which turns a proxied
+   page's address into .../sj/<ids>/https%3A%2F%2Fexample.com%2F. Now that
+   pages open as real tabs, that string is what someone actually reads, so
+   escape only the characters that genuinely cannot survive as-is and
+   leave the rest alone: .../sj/<ids>/https://example.com/
+
+   Exactly three characters have to be escaped, and each for a concrete
+   reason found in scramjet's own url rewriter:
+
+     ?  rewriteUrl() appends scramjet's own "?params" AFTER the encoded
+        segment, and unrewriteUrl() does `realUrl.search = ""` before
+        decoding. A literal ? in the target would merge with those and
+        then be thrown away, silently losing the site's query string.
+     #  a literal fragment would terminate the path early; scramjet
+        carries the real hash separately and re-appends it.
+     %  must be escaped first, or decoding could not tell an escape this
+        codec produced from one that was already in the URL.
+
+   These two functions are serialized with Function.prototype.toString()
+   and re-evaluated inside every proxied page, so they must stay
+   self-contained -- no closures, no outside references. */
+const READABLE_CODEC = {
+  encode: (url) => {
+    if (!url) return url;
+    return url
+      .replace(/%/g, '%25')
+      .replace(/\?/g, '%3F')
+      .replace(/#/g, '%23');
+  },
+  decode: (url) => {
+    if (!url) return url;
+    return url
+      .replace(/%23/gi, '#')
+      .replace(/%3F/gi, '?')
+      .replace(/%25/gi, '%');
+  },
+};
+
 /* The previous implementation registered its worker at root scope "/".
    A stale one may still be installed in a returning visitor's browser,
    where it would keep intercepting site-wide traffic forever. Clean up
@@ -82,7 +133,6 @@ const $back    = document.getElementById('rp-back');
 const $forward = document.getElementById('rp-forward');
 const $reload  = document.getElementById('rp-reload');
 const $status  = document.getElementById('rp-status');
-const $frameEl = document.getElementById('rp-frame');
 const $splash  = document.getElementById('rp-splash');
 
 let controller = null;
@@ -339,6 +389,7 @@ function boot() {
     config.scramjetPath = SCRAMJET_BUNDLE;
     config.wasmPath     = SCRAMJET_WASM;
     config.injectPath   = CONTROLLER_INJECT;
+    config.codec        = READABLE_CODEC;
 
     controller = new Controller({ serviceworker, transport });
     // Waits on a round trip to the service worker plus the WASM load. This
@@ -346,15 +397,20 @@ function boot() {
     // what stops a lost handshake from hanging the UI forever.
     await step('connecting to the service worker', controller.wait());
 
-    const urlWatcher = new window.$scramjetUtils.UrlWatcherPlugin((url) => {
-      $address.value = url;
-      $back.disabled = false;
-      $forward.disabled = false;
-      $reload.disabled = false;
-      $splash.hidden = true;
-    });
+    /* A Frame has to exist for a page to be servable: the worker routes on
+       the Controller's prefix, and the Controller then answers only if one
+       of its frames' prefixes matches the path. What a Frame does NOT have
+       to be is rendered. Pages open as real tabs here, so this element is
+       a detached <div> that is never inserted into the document and never
+       loads anything -- it exists purely to own frame.prefix.
 
-    frame = controller.createFrame($frameEl, { plugins: [urlWatcher] });
+       Deliberately not createFrame() with no argument: that default
+       constructs an <iframe> internally, and Red Portal's rule is that no
+       iframe element gets created at all. Frame only ever sets an expando
+       on this element, assigns .src (a harmless expando on a div, unused
+       here because we never call frame.go()), and reads .contentWindow
+       behind optional chaining -- so a div satisfies it completely. */
+    frame = controller.createFrame(document.createElement('div'));
 
     // Only now that a Controller exists (and has registered its prefix
     // with the worker) is there anything worth keeping alive.
@@ -379,6 +435,38 @@ function boot() {
   return bootPromise;
 }
 
+/* The tab currently showing a proxied page, so the toolbar can still
+   drive it. Same-origin (it is a redportal.dpdns.org URL), so reaching
+   into its history is allowed even though it is a separate tab. */
+let openedTab = null;
+
+function tabIsUsable() {
+  try {
+    return !!openedTab && !openedTab.closed;
+  } catch (_) {
+    return false;
+  }
+}
+
+function refreshNavButtons() {
+  const usable = tabIsUsable();
+  $back.disabled = !usable;
+  $forward.disabled = !usable;
+  $reload.disabled = !usable;
+}
+
+/** Builds the proxied address for a target and opens it as a real tab.
+ *
+ *  This is what replaces frame.go(): rather than pointing a nested frame
+ *  at the proxied URL, the page becomes the top-level document of its own
+ *  tab. Nothing renders inside Red Portal, so no iframe is needed
+ *  anywhere -- and sites that refuse to be framed stop being a problem,
+ *  since nothing is framed.
+ *
+ *  This page stays open as the engine: the worker forwards every proxied
+ *  request back to the Controller living here, so closing Red Portal
+ *  stops the opened tabs working. That is surfaced rather than left to
+ *  fail silently -- see the closed-tab check below. */
 async function navigate(input) {
   const value = (input || '').trim();
   if (!value) return;
@@ -392,12 +480,29 @@ async function navigate(input) {
   try {
     setStatus('');
     // No-op unless the worker was revived a moment ago, in which case this
-    // waits for it to have our prefix back before we navigate into it.
+    // waits for it to have our prefix back before we open into it.
     await reviveSettled;
-    await frame.go(toTargetUrl(value));
+
+    const target = toTargetUrl(value);
+    const proxied = new URL(
+      frame.prefix + READABLE_CODEC.encode(target),
+      location.origin
+    ).href;
+
+    const tab = window.open(proxied, '_blank');
+    if (!tab) {
+      setStatus('Your browser blocked the new tab. Allow pop-ups for this site, then try again.', true);
+      return;
+    }
+
+    openedTab = tab;
+    refreshNavButtons();
+    $address.value = target;
+    const p = $splash.querySelector('p');
+    if (p) p.textContent = 'Opened in a new tab. Keep Red Portal open — it runs the proxy.';
   } catch (err) {
     console.error('[redproxy] navigation failed', err);
-    setStatus('Could not load that page: ' + err.message, true);
+    setStatus('Could not open that page: ' + err.message, true);
   }
 }
 
@@ -406,9 +511,29 @@ $form.addEventListener('submit', (event) => {
   navigate($address.value);
 });
 
-$back.addEventListener('click', () => frame && frame.back());
-$forward.addEventListener('click', () => frame && frame.forward());
-$reload.addEventListener('click', () => frame && frame.reload());
+/* Drive the opened tab's own history. It is same-origin, so this is
+   permitted; if it has since been closed the buttons go back to disabled
+   rather than throwing. */
+function withOpenedTab(action) {
+  if (!tabIsUsable()) {
+    openedTab = null;
+    refreshNavButtons();
+    return;
+  }
+  try {
+    action(openedTab);
+  } catch (err) {
+    console.error('[redproxy] could not reach the opened tab', err);
+    setStatus('Could not reach that tab.', true);
+  }
+}
+
+$back.addEventListener('click', () => withOpenedTab((w) => w.history.back()));
+$forward.addEventListener('click', () => withOpenedTab((w) => w.history.forward()));
+$reload.addEventListener('click', () => withOpenedTab((w) => w.location.reload()));
+
+// Keep the buttons honest if the user closes the proxied tab themselves.
+setInterval(refreshNavButtons, 1500);
 
 /* Boot as soon as this document loads rather than waiting for the first
    submit: the tab only ever embeds this page when the user has actually

@@ -8,13 +8,14 @@
 <!--
   Red Proxy — the embedded proxy surface.
 
-  Red Portal's "Red Proxy" tab iframes THIS page at an absolute
-  https://<portal>/redproxy/frame.html URL. It deliberately owns the whole
-  UI (toolbar included) rather than being a bare content frame driven from
-  the parent, because the parent may be a blob: document on a foreign
-  origin, which could neither register the service worker nor reach into
-  here to drive it. Keeping everything on this side means the same code
-  runs whether Red Portal was opened normally or through a blob launcher.
+  The standalone engine. Red Portal normally runs the proxy in its own
+  document, but when it has been re-hosted as a blob: URL by an external
+  launcher it cannot -- a blob: page cannot use service workers at all --
+  so it opens THIS page as a real portal-origin tab to act as the engine
+  instead. Same frame.js, same toolbar, either way.
+
+  There is no iframe here: proxied pages open as real top-level tabs, and
+  this page stays behind to serve them.
 
   See frame.js for the full explanation of the origin rules involved.
 -->
@@ -113,13 +114,6 @@
 
   .frame-area { flex: 1; min-height: 0; position: relative; background: #000; }
 
-  .frame-area iframe {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    border: 0;
-  }
 
   #rp-splash {
     position: absolute;
@@ -162,11 +156,8 @@
 
   <div class="frame-area">
     <div id="rp-splash"><p>Starting Red Proxy&hellip;</p></div>
-    <!-- A real, already-in-the-DOM iframe. controller.createFrame() takes
-         an existing element and adopts it, which is how MercuryWorkshop's
-         own reference client does this. -->
-    <iframe id="rp-frame" title="Proxied content"
-            allow="autoplay; fullscreen; clipboard-read; clipboard-write"></iframe>
+    <!-- Nothing renders here. Proxied pages open as real top-level tabs,
+         so there is no iframe on this page either. -->
   </div>
 
   <script src="/redproxy/frame.js"></script>

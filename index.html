@@ -1064,39 +1064,36 @@ label.section-label {
   pointer-events: none;
 }
 
+/* Sits on its own panel. There is no longer an opaque viewport behind
+   this text -- nothing renders in the section at all now -- so on a
+   wallpaper theme it would otherwise be barely legible. */
+.rp-splash p {
+  background: rgba(8, 8, 12, 0.94);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 1.2rem;
+  max-width: 34rem;
+  color: var(--text);
+  box-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+
+/* The wallpaper and scanline layers are hidden while the Red Proxy tab is
+   open. Both are fixed and full-viewport, and they composite OVER this
+   whole section -- not behind it -- so the toolbar and the hint panel
+   both come out washed out no matter what background or z-index they are
+   given. Measured directly: the panel computes to rgba(8,8,12,0.94) and
+   still renders faded, and hiding these two fixes it instantly.
+   showSection() adds .rp-open only for #redproxy and removes it for every
+   other section, so the rest of Red Portal is untouched. */
+body.rp-open #theme-bg { display: none; }
+body.rp-open::before { display: none; }
+
 .rp-frame-area {
   flex: 1;
   min-height: 0; /* required so a flex child can actually shrink/scroll instead of overflowing */
   position: relative;
-  background: #000;
-  z-index: 1;
 }
 
-/* The wallpaper has to go while the proxy is open. #theme-bg is a fixed
-   full-viewport layer and the proxied page is a cross-origin iframe
-   inside a section carrying an animation transform, which composites the
-   wallpaper OVER the iframe whatever z-index the frame area is given --
-   confirmed on the live site, where raising the frame area changed
-   nothing and hiding this fixed it outright. Most sites paint no
-   background of their own, so otherwise the wallpaper shows straight
-   through them. showSection() adds .rp-open only for #redproxy and drops
-   it again on any other section, so this never affects the rest of the
-   site. It did not arise while the proxy lived in its own wrapper
-   document, which brought an opaque background of its own. */
-body.rp-open #theme-bg { display: none; }
-
-/* Same reasoning for the scanline overlay, which is also fixed and
-   full-viewport and so also lands on top of the proxied page -- a faint
-   grid over somebody else's website. Both come back the moment another
-   section is shown. */
-body.rp-open::before { display: none; }
-.rp-frame-area iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
 
 /* ── 22. REDUCED MOTION ──────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
@@ -1892,22 +1889,18 @@ footer {
        open and drives these exact elements. There is no wrapper page and
        no wrapper iframe in the normal case.
 
-       #rp-frame is the proxied site's own viewport and is not a wrapper:
-       Scramjet's Controller renders into an iframe by definition (its
-       Frame class drives element.src and element.contentWindow), and the
+       There is no viewport here and no iframe anywhere. Proxied pages
+       open as real top-level tabs at the Controller's prefix; this
+       document stays behind as the engine that serves them, because the
        service worker answers every proxied request by RPC back to the
-       Controller living in this page, so navigating this tab away would
-       tear the proxy down mid-flight.
+       Controller living here. Closing Red Portal therefore stops those
+       tabs working, which the toolbar reports rather than hiding.
 
-       #rp-embed is the single exception, used ONLY when Red Portal has
-       itself been re-hosted as a blob: URL by an external launcher. A
-       blob: URL carries the origin of the page that created it, so this
-       document is then running on the launcher's origin and
-       serviceWorker.register() rejects with SecurityError -- a flat
-       same-origin rule no header or config can opt out of. An iframe
-       pointed at the portal's real origin is the only way to obtain a
-       document that can register the worker there, so in that one case
-       the proxy is loaded through it instead. See openRedProxy(). -->
+       The one case this document cannot be the engine is Red Portal
+       having itself been re-hosted as a blob: URL by an external
+       launcher: a blob: page cannot use service workers at all. There it
+       opens the standalone /redproxy/frame.html as a real portal-origin
+       tab to act as the engine. See openRedProxy(). -->
   <section id="redproxy" class="section" aria-label="Red Proxy">
     <div class="rp-toolbar" id="rp-toolbar">
       <button type="button" id="rp-back" class="rp-nav-btn" title="Back" disabled>&lsaquo;</button>
@@ -1922,15 +1915,9 @@ footer {
     <p class="status" id="rp-status" aria-live="polite"></p>
     <div id="rp-frame-area" class="rp-frame-area">
       <div id="rp-splash" class="rp-splash"><p>Starting Red Proxy&hellip;</p></div>
-      <!-- The proxied site renders here. A real, already-in-the-DOM
-           element, which is how MercuryWorkshop's own reference client
-           passes it to controller.createFrame(). -->
-      <iframe id="rp-frame" title="Proxied content"
-              allow="autoplay; fullscreen; clipboard-read; clipboard-write"></iframe>
-      <!-- Blob-launcher fallback only. src is set lazily on first open,
-           so merely having this in the DOM never loads anything. -->
-      <iframe id="rp-embed" title="Red Proxy" hidden
-              allow="autoplay; fullscreen; clipboard-read; clipboard-write"></iframe>
+      <!-- Nothing renders here. Proxied pages open as real top-level
+           tabs, so Red Portal contains no iframe at all -- this area is
+           just the status/hint text above. -->
     </div>
   </section>
 
@@ -2298,17 +2285,12 @@ footer {
     // rAF ensures class is visible before adding animation class
     requestAnimationFrame(() => target.classList.add('section-enter'));
 
-    /* Red Proxy needs the wallpaper out of the way while it is open.
-       #theme-bg is a fixed full-viewport layer, and the proxied page is a
-       cross-origin iframe inside a section that carries an animation
-       transform -- a compositing case where the wallpaper is drawn over
-       the iframe no matter what z-index the frame area is given (verified
-       on the live site: raising the frame area changed nothing, hiding
-       #theme-bg fixed it instantly). Since most sites paint no background
-       of their own, the wallpaper otherwise shows straight through them
-       and makes them unreadable. Confined to this one section, and undone
-       as soon as any other section is shown. */
+    /* The fixed wallpaper and scanline layers composite over the Red Proxy
+       section rather than behind it, washing out its toolbar and hint
+       panel. Hide them for this section only, and restore them for every
+       other. See the body.rp-open rules in the stylesheet. */
     document.body.classList.toggle('rp-open', id === 'redproxy');
+
 
     if (activeLink) activeLink.classList.add('active');
 
@@ -2384,18 +2366,21 @@ footer {
      handler without responding to anything it does not proxy. Full
      reasoning in the SW_SCOPE comment in redproxy/frame.js.
 
+     Proxied pages do not render here. They open as real top-level tabs
+     at the Controller's own prefix, which is why Red Portal now contains
+     no iframe at all. This document stays the engine for them, so it has
+     to remain open while they are in use.
+
      The one exception is Red Portal having itself been re-hosted as a
-     blob: URL by an external launcher. A blob: URL carries the origin of
-     the page that CREATED it, so this document is then running on the
-     launcher's origin rather than the portal's, and
-     serviceWorker.register() rejects with SecurityError whenever the
-     scope's origin differs from the caller's. That is a flat same-origin
-     rule -- no header, config value or <base> tag opts out of it -- and
-     without an iframe there is no way to obtain a portal-origin document
-     inside that tab at all (a popup is a separate window; a worker cannot
-     render). So that case, and only that case, loads the standalone
-     /redproxy/frame.html through #rp-embed instead. Same frame.js either
-     way; only where it runs differs. */
+     blob: URL by an external launcher, where it cannot be the engine. A
+     blob: document cannot use service workers at all -- registering from
+     one fails with InvalidStateError and even getRegistrations() throws,
+     confirmed directly in Chrome -- and that holds even though a blob
+     does inherit the origin of whoever created it. So in that case
+     clicking Red Proxy opens the standalone /redproxy/frame.html as a
+     genuine portal-origin tab, which becomes the engine instead. Same
+     frame.js either way; only where it runs differs, and no iframe is
+     involved in either path. */
 
   /** Red Portal's real origin.
    *
@@ -2427,30 +2412,33 @@ footer {
     return location.protocol === 'blob:' || location.href.startsWith('blob:');
   }
 
-  const $rpEmbed   = document.getElementById('rp-embed');
   const $rpToolbar = document.getElementById('rp-toolbar');
   const $rpStatus  = document.getElementById('rp-status');
   const $rpSplash  = document.getElementById('rp-splash');
-  const $rpFrame   = document.getElementById('rp-frame');
 
   let rpOpened = false;
 
   /** Starts the proxy on first open and does nothing on subsequent ones,
-   *  so re-opening the tab leaves whatever the user was browsing intact
-   *  rather than resetting it back to a blank address bar. */
+   *  so re-opening the tab leaves the engine and its opened tabs alone
+   *  rather than resetting anything. */
   function openRedProxy() {
     if (rpOpened) return;
     rpOpened = true;
 
     if (isRedPortalItselfBlobWrapped()) {
-      // Hand the whole surface over to the standalone page: it brings its
-      // own toolbar, so ours would only be a dead duplicate.
+      /* This document cannot be the engine: a blob: page cannot use
+         service workers at all. Open the standalone page as a real
+         portal-origin tab and let it be the engine instead -- it brings
+         its own identical toolbar, so ours would be a dead duplicate. */
       $rpToolbar.hidden = true;
-      $rpStatus.hidden  = true;
-      $rpSplash.hidden  = true;
-      $rpFrame.hidden   = true;
-      $rpEmbed.hidden   = false;
-      $rpEmbed.src = redProxyOrigin() + '/redproxy/frame.html';
+      const engine = window.open(redProxyOrigin() + '/redproxy/frame.html', '_blank');
+      const p = $rpSplash.querySelector('p');
+      if (p) {
+        p.textContent = engine
+          ? 'Red Proxy opened in a new tab.'
+          : 'Your browser blocked the new tab. Allow pop-ups for this site, then click Red Proxy again.';
+      }
+      if (!engine) rpOpened = false;   // let them retry once pop-ups are allowed
       return;
     }
 
