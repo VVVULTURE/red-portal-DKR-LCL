@@ -37,7 +37,27 @@
 /* ── Paths. All absolute: this document is always at a real https origin,
    and every one of these is served by Red Portal's own server.js. ── */
 const SW_PATH   = '/redproxy/frame-sw.js';
-const SW_SCOPE  = '/redproxy/';
+/* Root scope, which is wider than this worker's own directory and so
+   needs the Service-Worker-Allowed header server.js sends for this path.
+   Not for the reason the old implementation needed it (its proxied URLs
+   genuinely lived at the site root; ours are under SJ_PREFIX and would
+   fit a "/redproxy/" scope perfectly well) but because the Controller now
+   runs inside Red Portal's own document at "/", and the worker talks to
+   its page through clients.matchAll() -- which returns ONLY clients the
+   worker controls. Left at "/redproxy/", index.html would be an
+   uncontrolled client and would silently never receive two things: the
+   cookie broadcasts that keep the Controller's jar in sync (so logins on
+   proxied sites would break) and the revive message a restarted worker
+   sends to get its prefixes back.
+
+   This is safe for the rest of the site in a way the old root-scope
+   worker was not. frame-sw.js returns immediately from its fetch handler
+   for anything shouldRoute() does not claim, never calling respondWith(),
+   so ordinary traffic behaves exactly as if no worker existed -- and it
+   is served WITHOUT COEP/COOP, which is what actually caused the earlier
+   site-wide R2 asset breakage (a worker inherits cross-origin isolation
+   from its own script response and imposes it on everything it touches). */
+const SW_SCOPE  = '/';
 const SJ_PREFIX = '/redproxy/sj/';   // must stay under SW_SCOPE
 
 const SCRAMJET_BUNDLE   = '/scram/scramjet.js';
@@ -396,10 +416,18 @@ $reload.addEventListener('click', () => frame && frame.reload());
    address bar unlocks when it finishes. */
 boot().catch(() => { /* surfaced in the status line */ });
 
-/* An optional ?url= lets the tab (or a link) deep-link straight to a
-   destination instead of landing on an empty address bar. */
-const requestedUrl = new URLSearchParams(location.search).get('url');
-if (requestedUrl) {
-  $address.value = requestedUrl;
-  navigate(requestedUrl);
+/* An optional ?url= lets a link deep-link straight to a destination
+   instead of landing on an empty address bar.
+
+   Only honoured on the standalone /redproxy/frame.html page, which marks
+   itself with data-rp-standalone. This same file is also loaded directly
+   into Red Portal's own document, where the query string belongs to Red
+   Portal rather than to the proxy -- reading it there would let any
+   ?url= on a Red Portal link silently drive the proxy somewhere. */
+if (document.body.hasAttribute('data-rp-standalone')) {
+  const requestedUrl = new URLSearchParams(location.search).get('url');
+  if (requestedUrl) {
+    $address.value = requestedUrl;
+    navigate(requestedUrl);
+  }
 }

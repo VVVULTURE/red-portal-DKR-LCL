@@ -1403,9 +1403,22 @@ const server = http.createServer((req, res) => {
     // directory is the max scope a browser allows by default, so this
     // header is required to explicitly widen it. See controller-init.js.
     //
-    // frame-sw.js deliberately does NOT get this header: it keeps the
-    // default "/redproxy/" scope, which is the whole point of frame.js
-    // moving config.prefix underneath that directory.
+    // frame-sw.js needs the same widening, for a different reason than
+    // sw.js does. Its proxied URLs sit under "/redproxy/sj/" and would fit
+    // its own directory's default scope perfectly well -- but the
+    // Controller now runs inside Red Portal's own document at "/", and the
+    // worker reaches its page via clients.matchAll(), which returns ONLY
+    // clients the worker CONTROLS. Without root scope, index.html would be
+    // an uncontrolled client and would silently miss both the cookie-sync
+    // broadcasts (breaking logins on proxied sites) and the revive message
+    // a restarted worker sends to get its prefixes back. See the SW_SCOPE
+    // comment in frame.js.
+    //
+    // Crucially this is NOT a return of the old site-wide hazard:
+    // frame-sw.js is listed in NON_ISOLATED below, so it carries no
+    // COEP/COOP for the worker to inherit and impose on the whole origin,
+    // and its fetch handler returns without ever calling respondWith() for
+    // anything shouldRoute() does not claim.
     // frame.js must revalidate on every load. It is served from the same
     // directory as the engine bundles, so it would otherwise inherit their
     // "public, max-age=3600" -- and it is not a cacheable third-party
@@ -1417,7 +1430,8 @@ const server = http.createServer((req, res) => {
     // frame-sw.js needs no equivalent -- register() passes
     // updateViaCache:'none', which bypasses the HTTP cache for the worker
     // script -- and frame.html already gets no-cache for being .html.
-    const extra = isSw
+    const isFrameSw = rel === 'frame-sw.js';
+    const extra = (isSw || isFrameSw)
       ? { 'service-worker-allowed': '/' }
       : (rel === 'frame.js' ? { 'cache-control': 'no-cache' } : undefined);
     // sw.js must NOT get SCRAMJET_HEADERS (isolate: false) -- a service

@@ -141,7 +141,11 @@
   }
 </style>
 </head>
-<body>
+<!-- data-rp-standalone marks this as the standalone page rather than
+     frame.js running inside Red Portal's own document. frame.js only
+     honours a ?url= deep link when it sees this, since in Red Portal the
+     query string belongs to the portal, not to the proxy. -->
+<body data-rp-standalone>
 
   <div class="toolbar">
     <button type="button" id="rp-back" class="nav-btn" title="Back" disabled>&lsaquo;</button>

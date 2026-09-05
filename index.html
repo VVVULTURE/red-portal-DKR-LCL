@@ -1006,6 +1006,64 @@ label.section-label {
   height: calc(100vh - var(--header-h));
 }
 
+.rp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem var(--sp-md);
+  background: rgba(10, 10, 16, 0.85);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.rp-nav-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  width: 2.15rem;
+  height: 2.15rem;
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s;
+}
+.rp-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.rp-nav-btn:disabled { opacity: 0.35; cursor: default; }
+
+.rp-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 160px;
+}
+.rp-form #rp-address { flex: 1; min-width: 0; }
+
+#redproxy .status { margin: 0 var(--sp-md); flex-shrink: 0; }
+#redproxy .status:empty { display: none; }
+
+/* Shown while the proxy is starting, and replaced by an idle prompt once
+   it is ready. redproxy/frame.js drives the text and hides it on the
+   first navigation. */
+.rp-splash {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  text-align: center;
+  padding: 2rem;
+  pointer-events: none;
+}
+
 .rp-frame-area {
   flex: 1;
   min-height: 0; /* required so a flex child can actually shrink/scroll instead of overflowing */
@@ -1065,6 +1123,9 @@ label.section-label {
      an invalid value -- fall back to a fixed, reasonable height instead of
      silently collapsing to the section's unconstrained content height. */
   #redproxy.section.active { height: 80vh; }
+
+  .rp-toolbar { padding: 0.45rem 0.6rem; }
+  .rp-form { min-width: 100px; }
 }
 
 @media (max-width: 480px) {
@@ -1805,29 +1866,50 @@ footer {
   </section>
 
   <!-- ── RED PROXY ────────────────────────────────────────────────────
-       Deliberately empty apart from one iframe. The entire proxy -- its
-       toolbar, its service worker, the Scramjet Controller, the libcurl
-       transport and the wisp connection -- lives inside
-       /redproxy/frame.html, which this iframe loads over an ABSOLUTE
-       https URL (see the openRedProxy() handler in the script below).
+       The proxy runs in THIS document. The toolbar below is the real
+       thing, and redproxy/frame.js -- the same file the standalone
+       /redproxy/frame.html page uses -- is loaded into this page on first
+       open and drives these exact elements. There is no wrapper page and
+       no wrapper iframe in the normal case.
 
-       That absolute URL is the whole point. Red Portal is often opened
-       through an external launcher that re-hosts this page as a blob:
-       URL, and a blob: URL carries the origin of the page that created
-       it -- so in that situation THIS document is running on the
-       launcher's origin, not the portal's, and can neither register the
-       portal's service worker (register() rejects when the scope's origin
-       differs from the caller's, unconditionally) nor resolve a
-       root-relative path. Pointing the iframe at the portal's real origin
-       puts the proxy back on a document that genuinely belongs to it, so
-       one identical code path works whether Red Portal was opened
-       normally or through a blob launcher. Nothing about the proxy is
-       driven from here; this section holds no proxy state at all. -->
+       #rp-frame is the proxied site's own viewport and is not a wrapper:
+       Scramjet's Controller renders into an iframe by definition (its
+       Frame class drives element.src and element.contentWindow), and the
+       service worker answers every proxied request by RPC back to the
+       Controller living in this page, so navigating this tab away would
+       tear the proxy down mid-flight.
+
+       #rp-embed is the single exception, used ONLY when Red Portal has
+       itself been re-hosted as a blob: URL by an external launcher. A
+       blob: URL carries the origin of the page that created it, so this
+       document is then running on the launcher's origin and
+       serviceWorker.register() rejects with SecurityError -- a flat
+       same-origin rule no header or config can opt out of. An iframe
+       pointed at the portal's real origin is the only way to obtain a
+       document that can register the worker there, so in that one case
+       the proxy is loaded through it instead. See openRedProxy(). -->
   <section id="redproxy" class="section" aria-label="Red Proxy">
-    <div class="rp-frame-area">
-      <!-- src is set lazily on first open, so merely having this section
-           in the DOM never boots the proxy or its service worker. -->
-      <iframe id="rp-embed" title="Red Proxy"
+    <div class="rp-toolbar" id="rp-toolbar">
+      <button type="button" id="rp-back" class="rp-nav-btn" title="Back" disabled>&lsaquo;</button>
+      <button type="button" id="rp-forward" class="rp-nav-btn" title="Forward" disabled>&rsaquo;</button>
+      <button type="button" id="rp-reload" class="rp-nav-btn" title="Reload" disabled>&#10227;</button>
+      <form id="rp-form" class="rp-form">
+        <input id="rp-address" type="text" placeholder="Search or enter a URL"
+               autocomplete="off" autocapitalize="off" spellcheck="false" disabled>
+        <button type="submit" id="rp-go" class="btn-primary" disabled>Go</button>
+      </form>
+    </div>
+    <p class="status" id="rp-status" aria-live="polite"></p>
+    <div id="rp-frame-area" class="rp-frame-area">
+      <div id="rp-splash" class="rp-splash"><p>Starting Red Proxy&hellip;</p></div>
+      <!-- The proxied site renders here. A real, already-in-the-DOM
+           element, which is how MercuryWorkshop's own reference client
+           passes it to controller.createFrame(). -->
+      <iframe id="rp-frame" title="Proxied content"
+              allow="autoplay; fullscreen; clipboard-read; clipboard-write"></iframe>
+      <!-- Blob-launcher fallback only. src is set lazily on first open,
+           so merely having this in the DOM never loads anything. -->
+      <iframe id="rp-embed" title="Red Proxy" hidden
               allow="autoplay; fullscreen; clipboard-read; clipboard-write"></iframe>
     </div>
   </section>
@@ -2255,24 +2337,33 @@ footer {
     }
   });
 
-  /* ── Red Proxy — opens the embedded proxy ─────────────────────────
-     Everything the proxy needs lives in /redproxy/frame.html: its own
-     toolbar, its own service worker (scoped to /redproxy/, so it can
-     never see the rest of the site's traffic), the Scramjet Controller,
-     the libcurl transport, and the wisp connection back to this same
-     server. Red Portal itself holds no proxy state and loads none of
-     those bundles -- this handler's entire job is to reveal the section
-     and point the iframe at that page once.
+  /* ── Red Proxy — opens the proxy ──────────────────────────────────
+     Normally the proxy runs in THIS document: opening the tab loads
+     redproxy/frame.js, which registers the service worker, builds the
+     Scramjet Controller and the libcurl transport, opens the wisp
+     connection back to this same server, and drives the toolbar markup in
+     the #redproxy section above. No wrapper page, no wrapper iframe.
 
-     The iframe URL must be ABSOLUTE. When Red Portal has been re-hosted
-     as a blob: URL by an external launcher, this document's origin is
-     the launcher's, not the portal's: a root-relative "/redproxy/..."
-     would resolve against the blob URL and fail, and running the proxy
-     in THIS document would hit register()'s same-origin rule, which no
-     header or config can opt out of. Loading the portal's real origin in
-     an iframe puts the proxy back on a document that genuinely belongs
-     to it, and works identically in a normal tab and a blob tab -- one
-     code path, no second mode to keep working. */
+     The worker takes root scope specifically so that THIS document is one
+     of its controlled clients -- it talks to its page via
+     clients.matchAll(), which returns only controlled clients, and the
+     cookie sync and worker-revival messages both travel that way. It
+     still leaves the rest of the site alone: it returns from its fetch
+     handler without responding to anything it does not proxy. Full
+     reasoning in the SW_SCOPE comment in redproxy/frame.js.
+
+     The one exception is Red Portal having itself been re-hosted as a
+     blob: URL by an external launcher. A blob: URL carries the origin of
+     the page that CREATED it, so this document is then running on the
+     launcher's origin rather than the portal's, and
+     serviceWorker.register() rejects with SecurityError whenever the
+     scope's origin differs from the caller's. That is a flat same-origin
+     rule -- no header, config value or <base> tag opts out of it -- and
+     without an iframe there is no way to obtain a portal-origin document
+     inside that tab at all (a popup is a separate window; a worker cannot
+     render). So that case, and only that case, loads the standalone
+     /redproxy/frame.html through #rp-embed instead. Same frame.js either
+     way; only where it runs differs. */
 
   /** Red Portal's real origin.
    *
@@ -2296,15 +2387,53 @@ footer {
     return PORTAL_ORIGIN;       // blob: (or any other) wrapper with no <base>
   }
 
-  const $rpEmbed = document.getElementById('rp-embed');
+  /** True when this copy of Red Portal is itself running from a blob:
+   *  URL, i.e. an external launcher fetched this page and re-hosted it.
+   *  That is the only situation in which the proxy cannot run in this
+   *  document. */
+  function isRedPortalItselfBlobWrapped() {
+    return location.protocol === 'blob:' || location.href.startsWith('blob:');
+  }
 
-  /** Points the iframe at the proxy exactly once. Re-opening the tab
-   *  just re-shows the section, leaving whatever the user was browsing
-   *  intact rather than resetting it back to a blank address bar. */
+  const $rpEmbed   = document.getElementById('rp-embed');
+  const $rpToolbar = document.getElementById('rp-toolbar');
+  const $rpStatus  = document.getElementById('rp-status');
+  const $rpSplash  = document.getElementById('rp-splash');
+  const $rpFrame   = document.getElementById('rp-frame');
+
+  let rpOpened = false;
+
+  /** Starts the proxy on first open and does nothing on subsequent ones,
+   *  so re-opening the tab leaves whatever the user was browsing intact
+   *  rather than resetting it back to a blank address bar. */
   function openRedProxy() {
-    if (!$rpEmbed.src) {
+    if (rpOpened) return;
+    rpOpened = true;
+
+    if (isRedPortalItselfBlobWrapped()) {
+      // Hand the whole surface over to the standalone page: it brings its
+      // own toolbar, so ours would only be a dead duplicate.
+      $rpToolbar.hidden = true;
+      $rpStatus.hidden  = true;
+      $rpSplash.hidden  = true;
+      $rpFrame.hidden   = true;
+      $rpEmbed.hidden   = false;
       $rpEmbed.src = redProxyOrigin() + '/redproxy/frame.html';
+      return;
     }
+
+    // Normal tab: run the proxy right here. frame.js boots as soon as it
+    // loads and binds to the elements already in the section above, so
+    // loading it lazily is what keeps merely having the section in the
+    // DOM from ever starting a service worker.
+    const s = document.createElement('script');
+    s.src = '/redproxy/frame.js';
+    s.async = false;
+    s.onerror = () => {
+      $rpStatus.textContent = 'Red Proxy failed to load.';
+      $rpStatus.classList.add('err');
+    };
+    document.head.appendChild(s);
   }
 
   $navRedProxy.addEventListener('click', e => {

@@ -1,20 +1,26 @@
 /**
  * Red Proxy — service worker for the embedded proxy (frame.html)
  * ==============================================================
- * Scope is "/redproxy/", NOT the site root.
+ * Registered at root scope "/" (see frame.js's explicit {scope:'/'} and
+ * the Service-Worker-Allowed header server.js sends for this path).
  *
- * The Controller's proxied-URL prefix is configurable (`config.prefix`,
- * default "/~/sj/"), and frame.js sets it to "/redproxy/sj/" precisely so
- * this worker's natural max scope -- the directory its own script is
- * served from -- already covers every URL it will ever need to intercept.
- * That removes the need for a Service-Worker-Allowed header, and, far more
- * importantly, means this worker can never see a single request belonging
- * to the rest of Red Portal: not index.html, not a game under Games/, not
- * an icon on assets.redportal.dpdns.org. The previous implementation
- * registered at root scope "/" and relied on shouldRoute() alone to stay
- * out of the way of the other 99% of the site; this one cannot reach that
- * traffic in the first place, which is a structural guarantee rather than
- * a behavioral one.
+ * Not because the proxied URLs need it -- frame.js puts them under
+ * "/redproxy/sj/", which this worker's own directory would cover -- but
+ * because the Controller runs inside Red Portal's document at "/", and a
+ * worker reaches its page through clients.matchAll(), which returns only
+ * clients it CONTROLS. A narrower scope would leave index.html
+ * uncontrolled and silently cut it off from the cookie-sync broadcasts
+ * and from the revive message a restarted worker sends to recover its
+ * prefixes.
+ *
+ * Root scope stays safe for the rest of the site because of the early
+ * return below: for anything shouldRoute() does not claim, this worker
+ * never calls respondWith(), so Red Portal, the games and the R2-hosted
+ * assets behave exactly as if no worker were installed. The earlier
+ * site-wide breakage was not caused by root scope itself but by the
+ * worker script being served WITH COEP -- a worker inherits cross-origin
+ * isolation from its own script response and then imposes it on every
+ * request it touches. This file is deliberately served without it.
  *
  * controller.sw.js supplies $scramjetController and wires its own
  * install/activate handlers (skipWaiting + clients.claim) -- verified
