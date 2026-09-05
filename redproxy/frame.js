@@ -187,12 +187,49 @@ const REVIVE_SETTLE_MS = 400;
 
 let reviveSettled = Promise.resolve();
 
+/** Re-tells the service worker which prefix this Controller answers for.
+ *
+ *  This is the single most important call in the file. The worker keeps
+ *  its prefix table in memory, and when it loses it, shouldRoute() stops
+ *  recognising our URLs and proxied pages escape to the network -- they
+ *  arrive at the server's /redproxy/sj/ guard instead of the real site.
+ *
+ *  Scramjet's own recovery cannot be relied on. The restarted worker asks
+ *  its clients to re-announce 100ms after it starts (far too late for the
+ *  request that woke it), and the Controller's handler for that message
+ *  is gated behind guardServiceWorkerRevive, which deliberately ignores
+ *  revivals for the first 5 seconds after boot. Observed directly against
+ *  the live site: a freshly booted, service-worker-controlled engine page
+ *  whose every proxied fetch escaped, and calling this fixed it instantly
+ *  (the same request went from the guard to a real 200).
+ *
+ *  setupMessagePort() is TypeScript-private, not runtime-private, and is
+ *  exactly what the Controller's own revive path calls. It is safe to
+ *  repeat: it closes the previous port, opens a new MessageChannel and
+ *  re-sends $controller$init, and the worker replaces any entry with a
+ *  matching id rather than accumulating duplicates. Guarded anyway, so a
+ *  future rename degrades to the old behaviour instead of throwing. */
+function announcePrefix() {
+  try {
+    if (controller && typeof controller.setupMessagePort === 'function') {
+      controller.setupMessagePort();
+      return true;
+    }
+    console.warn('[redproxy] cannot re-announce prefix: setupMessagePort is gone');
+  } catch (err) {
+    console.error('[redproxy] re-announcing the prefix failed', err);
+  }
+  return false;
+}
+
 function watchForServiceWorkerRevival() {
   if (!navigator.serviceWorker) return;
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (!event.data || !event.data.$controller$swrevive) return;
-    // The Controller answers this same event by re-sending its port. Hold
-    // navigations briefly so one cannot overtake that handshake.
+    // Do the re-announce ourselves rather than trusting the Controller's
+    // own guarded handler to act on this. Then hold navigations briefly
+    // so one cannot overtake the handshake.
+    announcePrefix();
     reviveSettled = new Promise((resolve) => setTimeout(resolve, REVIVE_SETTLE_MS));
   });
 }
@@ -508,6 +545,15 @@ async function navigate(input) {
 
 $form.addEventListener('submit', (event) => {
   event.preventDefault();
+  /* Re-announce here, synchronously, rather than deeper inside navigate().
+     Two reasons. It happens at the very start, so the worker has the whole
+     of boot() and the awaits below to process it before the new tab asks
+     for anything. And it adds no delay of its own before window.open --
+     an extra await there risks falling outside the user-gesture window and
+     getting the tab blocked as a pop-up. No-ops harmlessly on the first
+     submit, when the Controller does not exist yet and its constructor is
+     about to announce the prefix anyway. */
+  announcePrefix();
   navigate($address.value);
 });
 
