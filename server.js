@@ -1316,6 +1316,20 @@ const server = http.createServer((req, res) => {
     res.writeHead(404, { 'content-type': 'text/plain', ...CORS_HEADERS });
     return res.end('This request needed to go through the Red Proxy service worker, but reached the server directly instead (the service worker doesn\'t control this browsing context) -- not proxyable from here.');
   }
+  /* ── Same idea as /~/sj/ above, for the EMBEDDED proxy ──
+     frame.js overrides config.prefix to "/redproxy/sj/" so that its
+     service worker's natural max scope ("/redproxy/", the directory its
+     own script is served from) already covers every proxied URL, without
+     needing root scope or a Service-Worker-Allowed header. A request
+     arriving here under that prefix means the same thing the /~/sj/ case
+     means: it escaped service worker control, and cannot be answered from
+     the raw HTTP server. Must be checked BEFORE the generic /redproxy/
+     static branch below, which would otherwise try to read it off disk
+     and answer with a bare, unexplained "Not found". */
+  if (pathname.startsWith('/redproxy/sj/')) {
+    res.writeHead(404, { 'content-type': 'text/plain', ...CORS_HEADERS });
+    return res.end('This request needed to go through the Red Proxy service worker, but reached the server directly instead (the service worker doesn\'t control this browsing context) -- not proxyable from here.');
+  }
   if (pathname === '/redproxy' || pathname === '/redproxy/' || pathname.startsWith('/redproxy/')) {
     const rel = (pathname === '/redproxy' || pathname === '/redproxy/')
       ? 'index.html'
@@ -1326,6 +1340,10 @@ const server = http.createServer((req, res) => {
     // live at the site root, not under this folder. A script's own
     // directory is the max scope a browser allows by default, so this
     // header is required to explicitly widen it. See controller-init.js.
+    //
+    // frame-sw.js deliberately does NOT get this header: it keeps the
+    // default "/redproxy/" scope, which is the whole point of frame.js
+    // moving config.prefix underneath that directory.
     const extra = isSw ? { 'service-worker-allowed': '/' } : undefined;
     // sw.js must NOT get SCRAMJET_HEADERS (isolate: false) -- a service
     // worker inherits COEP/COOP from its own script response, and at root
@@ -1340,7 +1358,19 @@ const server = http.createServer((req, res) => {
     // proxy's init sequence step by step, isolating it to the moment the
     // service worker registers) and by curling the header this file used
     // to be served with.
-    return serveScramjetAsset(req, res, path.join(STATIC, 'redproxy'), rel, extra, !isSw);
+    //
+    // The frame.* trio is excluded from SCRAMJET_HEADERS for a different
+    // reason. frame.html is embedded by Red Portal's Red Proxy tab, which
+    // may itself be a blob: document belonging to a foreign origin. Cross-
+    // origin isolation is inherited from the top-level document, so it can
+    // never be achieved there no matter what this server sends -- and it
+    // buys nothing anyway (the Controller only consults crossOriginIsolated
+    // to decide whether to copy COEP/COOP onto proxied responses, and
+    // defaults it to false). Sending require-corp would therefore add real
+    // constraints on every subresource for zero benefit. frame-sw.js is
+    // excluded for the ordinary service-worker reason above.
+    const NON_ISOLATED = ['sw.js', 'frame-sw.js', 'frame.html', 'frame.js'];
+    return serveScramjetAsset(req, res, path.join(STATIC, 'redproxy'), rel, extra, !NON_ISOLATED.includes(rel));
   }
 
   /* ── Games/Testing → redirect straight to R2 ──

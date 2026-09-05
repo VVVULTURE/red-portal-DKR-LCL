@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Red Proxy</title>
+<!--
+  Red Proxy — the embedded proxy surface.
+
+  Red Portal's "Red Proxy" tab iframes THIS page at an absolute
+  https://<portal>/redproxy/frame.html URL. It deliberately owns the whole
+  UI (toolbar included) rather than being a bare content frame driven from
+  the parent, because the parent may be a blob: document on a foreign
+  origin, which could neither register the service worker nor reach into
+  here to drive it. Keeping everything on this side means the same code
+  runs whether Red Portal was opened normally or through a blob launcher.
+
+  See frame.js for the full explanation of the origin rules involved.
+-->
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --accent: #ff2020;
+    --bg: #0a0a0a;
+    --bg-toolbar: rgba(10, 10, 16, 0.92);
+    --border: rgba(255, 32, 32, 0.18);
+    --text: #ffdddd;
+    --text-muted: #aa8888;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+  }
+
+  body { display: flex; flex-direction: column; }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.8rem;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .nav-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 6px;
+    width: 2.15rem;
+    height: 2.15rem;
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+  .nav-btn:disabled { opacity: 0.35; cursor: default; }
+
+  form { display: flex; gap: 0.5rem; flex: 1; min-width: 100px; }
+
+  #rp-address {
+    flex: 1;
+    min-width: 0;
+    padding: 0.55rem 0.8rem;
+    font: inherit;
+    font-size: 1rem;
+    background: #1a0d0d;
+    border: 1px solid rgba(255, 32, 32, 0.35);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+  }
+  #rp-address:focus { border-color: var(--accent); }
+  #rp-address:disabled { opacity: 0.5; }
+
+  #rp-go {
+    padding: 0.55rem 1.1rem;
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    background: var(--accent);
+    color: #0a0a0a;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  #rp-go:hover:not(:disabled) { background: #ff4040; }
+  #rp-go:disabled { opacity: 0.5; cursor: default; }
+
+  #rp-status {
+    padding: 0.35rem 0.8rem 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  #rp-status:empty { display: none; }
+  #rp-status.err { color: #ff6060; }
+
+  .frame-area { flex: 1; min-height: 0; position: relative; background: #000; }
+
+  .frame-area iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+
+  #rp-splash {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    pointer-events: none;
+  }
+  #rp-splash[hidden] { display: none; }
+
+  @media (max-width: 768px) {
+    .toolbar { padding: 0.45rem 0.6rem; }
+    form { min-width: 90px; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="toolbar">
+    <button type="button" id="rp-back" class="nav-btn" title="Back" disabled>&lsaquo;</button>
+    <button type="button" id="rp-forward" class="nav-btn" title="Forward" disabled>&rsaquo;</button>
+    <button type="button" id="rp-reload" class="nav-btn" title="Reload" disabled>&#10227;</button>
+    <form id="rp-form">
+      <input id="rp-address" type="text" placeholder="Search or enter a URL"
+             autocomplete="off" autocapitalize="off" spellcheck="false" disabled>
+      <button type="submit" id="rp-go" disabled>Go</button>
+    </form>
+  </div>
+
+  <p id="rp-status" aria-live="polite"></p>
+
+  <div class="frame-area">
+    <div id="rp-splash"><p>Starting Red Proxy&hellip;</p></div>
+    <!-- A real, already-in-the-DOM iframe. controller.createFrame() takes
+         an existing element and adopts it, which is how MercuryWorkshop's
+         own reference client does this. -->
+    <iframe id="rp-frame" title="Proxied content"
+            allow="autoplay; fullscreen; clipboard-read; clipboard-write"></iframe>
+  </div>
+
+  <script src="/redproxy/frame.js"></script>
+</body>
+</html>
