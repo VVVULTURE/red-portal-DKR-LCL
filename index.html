@@ -1069,17 +1069,21 @@ label.section-label {
   min-height: 0; /* required so a flex child can actually shrink/scroll instead of overflowing */
   position: relative;
   background: #000;
-  /* Lifts the proxied page above #theme-bg, the fixed full-viewport
-     wallpaper layer (z-index 0). Both are positioned, so without this
-     they paint in DOM order and the wallpaper -- which comes later --
-     shows straight through the proxied site, since most pages draw no
-     background of their own. The wallpaper is still meant to show through
-     the translucent toolbar above, exactly as it does elsewhere in Red
-     Portal; it is only the page viewport that has to be opaque. This did
-     not arise while the proxy lived in its own wrapper document, which
-     brought an opaque background with it. */
   z-index: 1;
 }
+
+/* The wallpaper has to go while the proxy is open. #theme-bg is a fixed
+   full-viewport layer and the proxied page is a cross-origin iframe
+   inside a section carrying an animation transform, which composites the
+   wallpaper OVER the iframe whatever z-index the frame area is given --
+   confirmed on the live site, where raising the frame area changed
+   nothing and hiding this fixed it outright. Most sites paint no
+   background of their own, so otherwise the wallpaper shows straight
+   through them. showSection() adds .rp-open only for #redproxy and drops
+   it again on any other section, so this never affects the rest of the
+   site. It did not arise while the proxy lived in its own wrapper
+   document, which brought an opaque background of its own. */
+body.rp-open #theme-bg { display: none; }
 .rp-frame-area iframe {
   position: absolute;
   inset: 0;
@@ -2287,6 +2291,18 @@ footer {
     target.classList.add('active');
     // rAF ensures class is visible before adding animation class
     requestAnimationFrame(() => target.classList.add('section-enter'));
+
+    /* Red Proxy needs the wallpaper out of the way while it is open.
+       #theme-bg is a fixed full-viewport layer, and the proxied page is a
+       cross-origin iframe inside a section that carries an animation
+       transform -- a compositing case where the wallpaper is drawn over
+       the iframe no matter what z-index the frame area is given (verified
+       on the live site: raising the frame area changed nothing, hiding
+       #theme-bg fixed it instantly). Since most sites paint no background
+       of their own, the wallpaper otherwise shows straight through them
+       and makes them unreadable. Confined to this one section, and undone
+       as soon as any other section is shown. */
+    document.body.classList.toggle('rp-open', id === 'redproxy');
 
     if (activeLink) activeLink.classList.add('active');
 
