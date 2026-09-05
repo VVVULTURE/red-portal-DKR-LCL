@@ -128,10 +128,21 @@ function watchForServiceWorkerRevival() {
 }
 
 function startServiceWorkerHeartbeat(serviceworker) {
-  const ping = () => {
+  /* Deliberately re-resolves the active worker on every beat rather than
+     holding the one captured at boot. That original object goes redundant
+     the moment an update takes over -- which is exactly what a deploy of
+     frame-sw.js does to a tab that is already open -- and posting to a
+     redundant worker throws. Caught, that would leave the heartbeat
+     silently dead and hand back the very bug this exists to prevent. */
+  const ping = async () => {
+    let target = serviceworker;
     try {
-      serviceworker.postMessage({ $redproxy$keepalive: Date.now() });
-    } catch (_) { /* worker replaced or gone; the revive path covers it */ }
+      const registration = await navigator.serviceWorker.getRegistration(SW_SCOPE);
+      if (registration && registration.active) target = registration.active;
+    } catch (_) { /* fall back to the worker we booted with */ }
+    try {
+      if (target) target.postMessage({ $redproxy$keepalive: Date.now() });
+    } catch (_) { /* gone entirely; the revive path re-establishes it */ }
   };
   ping();
   setInterval(ping, HEARTBEAT_MS);
