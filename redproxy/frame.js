@@ -74,6 +74,43 @@ function setStatus(message, isError) {
   $status.classList.toggle('err', !!isError);
 }
 
+/* How long any single boot step may take before it is treated as hung.
+   Generous: the engine bundles total a couple of megabytes, and when Red
+   Portal is embedded by a launcher the browser partitions storage by the
+   top-level site, so none of it can be served from a cache another site
+   already warmed. */
+const STEP_TIMEOUT_MS = 30000;
+
+/** Runs one boot step, showing which step is in flight and failing loudly
+ *  if it never settles.
+ *
+ *  Both halves matter. Naming the step turns "it just says Starting Red
+ *  Proxy forever" into something diagnosable by whoever is looking at the
+ *  screen. The timeout exists because the steps below are not all
+ *  guaranteed to reject on their own -- a service worker handshake that
+ *  never gets an answer simply waits, so without this the UI would sit on
+ *  a spinner indefinitely rather than reporting a failure. */
+function step(label, promise) {
+  setBusy('Starting Red Proxy… (' + label + ')');
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('timed out after ' + (STEP_TIMEOUT_MS / 1000) + 's while ' + label)),
+      STEP_TIMEOUT_MS
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Progress goes in the status line AND the centre-of-frame splash: the
+ *  splash is what is actually readable at a glance, especially when this
+ *  page is embedded in Red Portal's tab. */
+function setBusy(message) {
+  setStatus(message);
+  const p = $splash.querySelector('p');
+  if (p) p.textContent = message;
+}
+
 /** Turn whatever was typed into a URL: a real URL, a bare hostname, or a
  *  search query. A single-label host with no dot is treated as a search,
  *  so "red portal" does not become a bogus navigation. */
@@ -187,15 +224,18 @@ function boot() {
   if (bootPromise) return bootPromise;
 
   bootPromise = (async () => {
-    setStatus('Starting Red Proxy…');
-    await removeLegacyRootWorker();
+    setBusy('Starting Red Proxy…');
 
-    const serviceworker = await registerWorker();
+    await step('clearing out old workers', removeLegacyRootWorker());
 
-    await loadScript(SCRAMJET_BUNDLE);
-    await loadScript(CONTROLLER_API);
-    await loadScript(SCRAMJET_UTILS);
-    await loadScript(LIBCURL_CLIENT);
+    const serviceworker = await step('registering the service worker', registerWorker());
+
+    await step('loading the proxy engine', (async () => {
+      await loadScript(SCRAMJET_BUNDLE);
+      await loadScript(CONTROLLER_API);
+      await loadScript(SCRAMJET_UTILS);
+      await loadScript(LIBCURL_CLIENT);
+    })());
 
     const wispUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/wisp/';
     const transport = new window.LibcurlTransport.LibcurlClient({ wisp: wispUrl });
@@ -209,7 +249,10 @@ function boot() {
     config.injectPath   = CONTROLLER_INJECT;
 
     controller = new Controller({ serviceworker, transport });
-    await controller.wait();
+    // Waits on a round trip to the service worker plus the WASM load. This
+    // is the step with no failure mode of its own, so the timeout above is
+    // what stops a lost handshake from hanging the UI forever.
+    await step('connecting to the service worker', controller.wait());
 
     const urlWatcher = new window.$scramjetUtils.UrlWatcherPlugin((url) => {
       $address.value = url;
@@ -224,10 +267,15 @@ function boot() {
     $address.disabled = false;
     $go.disabled = false;
     setStatus('');
+    const idle = $splash.querySelector('p');
+    if (idle) idle.textContent = 'Type a URL or search above to get started.';
   })().catch((err) => {
     bootPromise = null;
     console.error('[redproxy]', err);
-    setStatus('Red Proxy failed to start: ' + err.message, true);
+    const message = 'Red Proxy failed to start: ' + err.message;
+    setStatus(message, true);
+    const p = $splash.querySelector('p');
+    if (p) p.textContent = message;
     throw err;
   });
 
