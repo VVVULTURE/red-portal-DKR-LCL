@@ -1344,7 +1344,20 @@ const server = http.createServer((req, res) => {
     // frame-sw.js deliberately does NOT get this header: it keeps the
     // default "/redproxy/" scope, which is the whole point of frame.js
     // moving config.prefix underneath that directory.
-    const extra = isSw ? { 'service-worker-allowed': '/' } : undefined;
+    // frame.js must revalidate on every load. It is served from the same
+    // directory as the engine bundles, so it would otherwise inherit their
+    // "public, max-age=3600" -- and it is not a cacheable third-party
+    // bundle, it is the client half of a contract with this server (the
+    // service worker path, its scope, and config.prefix all have to agree).
+    // Letting a browser run an hour-old copy against a freshly deployed
+    // server is a real failure mode, not a theoretical one: it is what made
+    // the first deploy of the staged boot reporting appear to do nothing.
+    // frame-sw.js needs no equivalent -- register() passes
+    // updateViaCache:'none', which bypasses the HTTP cache for the worker
+    // script -- and frame.html already gets no-cache for being .html.
+    const extra = isSw
+      ? { 'service-worker-allowed': '/' }
+      : (rel === 'frame.js' ? { 'cache-control': 'no-cache' } : undefined);
     // sw.js must NOT get SCRAMJET_HEADERS (isolate: false) -- a service
     // worker inherits COEP/COOP from its own script response, and at root
     // scope that would cross-origin-isolate the ENTIRE SITE for as long as
