@@ -44,7 +44,25 @@ const SESSION_COOKIE = 'rp_sid';
 const MAX_SESSIONS = 500;
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000;
 
-export async function createServerScramjet({ scramjetDist, prefixPath, origin, assetVersion }) {
+/* Which origin this server is reachable at, worked out per request.
+   Deliberately NOT captured once at startup: the value ends up inside the
+   proxy prefix, and every proxied URL is decoded by checking it against
+   that prefix. Pinning it to whichever request happened to initialise the
+   module first meant that if that request arrived with a different Host --
+   a platform health check, or the onrender.com hostname rather than the
+   custom domain -- every subsequent request failed to decode and returned
+   "Invalid URL". That produced exactly the symptom seen in production:
+   intermittent failures that never reproduced from curl, because it
+   depended on who spoke to the process first after a restart. */
+function originOf(req, fallbackOrigin) {
+  const proto = req.headers['x-forwarded-proto'] ||
+    (req.socket && req.socket.encrypted ? 'https' : 'http');
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  if (!host) return fallbackOrigin;
+  return `${String(proto).split(',')[0].trim()}://${host}`;
+}
+
+export async function createServerScramjet({ scramjetDist, prefixPath, origin: fallbackOrigin, assetVersion }) {
   /* Injected script URLs carry a version so a deploy cannot leave browsers
      running an older client against a newer server. Cloudflare sits in
      front of this origin and honours the long max-age these scripts are
@@ -110,7 +128,8 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin, a
   /** Scripts injected at the top of every rewritten document. Order is load
    *  bearing: the bundle defines $scramjet, the wasm blob feeds the JS
    *  rewriter, and only then can the client boot against them. */
-  function getInjectScripts(meta, handler, htmlcontext, script) {
+  function makeGetInjectScripts(origin) {
+    return function getInjectScripts(meta, handler, htmlcontext, script) {
     /* Tell the page which site it is, explicitly.
 
        Scramjet normally works this out by decoding the document's own URL,
@@ -131,27 +150,32 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin, a
       Buffer.from(`globalThis.__rpTarget=${JSON.stringify(targetHref)};`, 'utf8')
         .toString('base64');
 
-    return [
-      script(`${origin}/scram/scramjet.js${v}`),
-      script(`${origin}/rp-wasm.js${v}`),
-      script(declareTarget),
-      script(`${origin}/rp-client.js${v}`),
-    ];
+      return [
+        script(`${origin}/scram/scramjet.js${v}`),
+        script(`${origin}/rp-wasm.js${v}`),
+        script(declareTarget),
+        script(`${origin}/rp-client.js${v}`),
+      ];
+    };
   }
 
-  function contextFor(session) {
+  function contextFor(session, origin) {
     return {
       config: sj.defaultConfig,
       prefix: new URL(prefixPath, origin),
       cookieJar: session.jar,
-      interface: { codecEncode, codecDecode, getInjectScripts },
+      interface: {
+        codecEncode,
+        codecDecode,
+        getInjectScripts: makeGetInjectScripts(origin),
+      },
     };
   }
 
-  function makeHandler(session) {
+  function makeHandler(session, origin) {
     return new sj.ScramjetFetchHandler({
       transport,
-      context: contextFor(session),
+      context: contextFor(session, origin),
       crossOriginIsolated: false,
       // The jar lives here rather than in the browser, so applying a
       // Set-Cookie is a local operation with nothing to synchronise.
@@ -187,6 +211,7 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin, a
   }
 
   async function handle(req, res, pathname) {
+    const origin = originOf(req, fallbackOrigin);
     let sid = readCookie(req, SESSION_COOKIE);
     const isNewSession = !sid || !sessions.has(sid);
     if (isNewSession) sid = randomUUID();
@@ -199,7 +224,7 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin, a
     }
 
     const proxiedUrl = new URL(req.url, origin);
-    const handler = makeHandler(session);
+    const handler = makeHandler(session, origin);
 
     const initial = [];
     for (const [k, v] of Object.entries(req.headers)) {
@@ -292,6 +317,7 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin, a
   const wss = new WebSocketServer({ noServer: true });
 
   function handleUpgrade(req, socket, head) {
+    const origin = originOf(req, fallbackOrigin);
     let target;
     try {
       const u = new URL(req.url, origin);
