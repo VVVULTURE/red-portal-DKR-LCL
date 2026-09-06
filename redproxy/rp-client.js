@@ -147,6 +147,38 @@
     },
   };
 
+  /* Make client-side routing survive inside a blob: document.
+   *
+   * A blob: URL cannot change, so history.pushState and replaceState throw
+   * SecurityError there -- for a path and even for a bare hash. Any app
+   * that routes client-side hits that during boot and stops dead, which is
+   * why a static page proxies happily into a blob tab while a single-page
+   * app comes up blank.
+   *
+   * Scramjet keeps its own view of the proxied URL regardless, so the real
+   * call has nothing useful to do here anyway; it only needs to stop
+   * throwing. Patched on History.prototype BEFORE the client hooks, so the
+   * "native" it captures is already this safe version rather than the one
+   * that throws. Only in blob: documents -- everywhere else the real
+   * implementation is left completely alone. */
+  function makeHistorySafeForBlob() {
+    if (location.protocol !== 'blob:') return;
+    var proto = History.prototype;
+    ['pushState', 'replaceState'].forEach(function (name) {
+      var original = proto[name];
+      if (typeof original !== 'function') return;
+      proto[name] = function (state, title, url) {
+        try {
+          return original.call(this, state, title, url);
+        } catch (err) {
+          // Expected in a blob: document. The app's router carries on and
+          // scramjet still tracks where it thinks it is.
+          return undefined;
+        }
+      };
+    });
+  }
+
   function bootClient(scope) {
     var client = new sj.ScramjetClient(scope, {
       context: makeContext(),
@@ -161,6 +193,7 @@
   }
 
   try {
+    makeHistorySafeForBlob();   // must run before the client captures natives
     bootClient(globalThis);
   } catch (err) {
     console.error('[redproxy] client failed to hook', err);
