@@ -34,6 +34,9 @@ globalThis.self = globalThis; // the bundle is browser-targeted and expects it
 import { readFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
+/* Node 20 on Render has no global WebSocket client, so use ws explicitly
+   rather than relying on the runtime having one. */
+import { WebSocketServer, WebSocket as NodeWebSocket } from 'ws';
 
 const SESSION_COOKIE = 'rp_sid';
 /* Cookie jars are per visitor. A single shared jar would leak one person's
@@ -221,5 +224,84 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin })
     return 'empty';
   }
 
-  return { handle, sessions };
+  /* ── WebSocket relay ────────────────────────────────────────────
+     GeForce NOW (and anything else with a live connection) negotiates
+     over a WebSocket, so the proxy has to carry one. The browser opens a
+     socket to /rp-ws/?url=<target>; this opens the real socket outward
+     and pipes the two together, binary and text both.
+
+     Note what is NOT here: WebRTC. Scramjet does not touch it either --
+     grepping its core and controller for RTCPeerConnection/ICE finds
+     nothing -- which is exactly why GeForce NOW works under stock
+     scramjet. The page, its scripts and this signalling socket are
+     proxied; the video stream itself negotiates directly between the
+     browser and NVIDIA and never passes through here. Keeping scramjet's
+     client unchanged means that behaviour is identical to the official
+     build. */
+  const wss = new WebSocketServer({ noServer: true });
+
+  function handleUpgrade(req, socket, head) {
+    let target;
+    try {
+      const u = new URL(req.url, origin);
+      const raw = u.searchParams.get('url');
+      if (!raw) throw new Error('no target');
+      target = new URL(codecDecode(raw));
+      if (target.protocol !== 'ws:' && target.protocol !== 'wss:') {
+        // Sites hand us http(s) origins for their sockets; map them over.
+        target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:';
+      }
+    } catch {
+      socket.destroy();
+      return;
+    }
+
+    wss.handleUpgrade(req, socket, head, (client) => {
+      const headers = {};
+      // Most services reject a socket whose Origin does not look like their
+      // own site, so present the target's origin rather than Red Portal's.
+      headers['origin'] = target.origin.replace(/^ws/, 'http');
+      if (req.headers['user-agent']) headers['user-agent'] = req.headers['user-agent'];
+
+      const protocols = (req.headers['sec-websocket-protocol'] || '')
+        .split(',').map((s) => s.trim()).filter(Boolean);
+
+      let upstream;
+      try {
+        upstream = new NodeWebSocket(target.href, protocols.length ? protocols : undefined, { headers });
+      } catch (err) {
+        try { client.close(1011, 'upstream failed'); } catch { /* already gone */ }
+        return;
+      }
+
+      const pending = [];
+      upstream.on('open', () => {
+        for (const m of pending.splice(0)) {
+          try { upstream.send(m); } catch { /* closed mid-flush */ }
+        }
+      });
+      upstream.on('message', (data, isBinary) => {
+        if (client.readyState === client.OPEN) client.send(data, { binary: isBinary });
+      });
+      upstream.on('close', (code, reason) => {
+        try { client.close(code >= 1000 && code <= 4999 ? code : 1011, reason?.toString?.() || ''); } catch { /* gone */ }
+      });
+      upstream.on('error', () => {
+        try { client.close(1011, 'upstream error'); } catch { /* gone */ }
+      });
+
+      client.on('message', (data, isBinary) => {
+        if (upstream.readyState === upstream.OPEN) upstream.send(data, { binary: isBinary });
+        else if (upstream.readyState === upstream.CONNECTING) pending.push(data);
+      });
+      client.on('close', () => {
+        try { upstream.close(); } catch { /* gone */ }
+      });
+      client.on('error', () => {
+        try { upstream.close(); } catch { /* gone */ }
+      });
+    });
+  }
+
+  return { handle, handleUpgrade, sessions };
 }

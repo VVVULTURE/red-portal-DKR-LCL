@@ -1591,6 +1591,18 @@ server.on('upgrade', (req, socket, head) => {
   if (req.url === '/wisp/' || req.url.startsWith('/wisp/')) {
     return wispServer.routeRequest(req, socket, head);
   }
+  /* Server-side Red Proxy's socket relay. Sites that hold a connection
+     open -- GeForce NOW's signalling above all -- come through here, and
+     ssr.mjs opens the real socket outward and pipes both ways. */
+  if (req.url === '/rp-ws/' || req.url.startsWith('/rp-ws/')) {
+    getServerScramjet(req)
+      .then((ssr) => ssr.handleUpgrade(req, socket, head))
+      .catch((err) => {
+        console.error('[redproxy/ssr] upgrade failed', err && err.stack || err);
+        socket.destroy();
+      });
+    return;
+  }
   socket.destroy();
 });
 

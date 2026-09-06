@@ -80,8 +80,42 @@
         return { body: res.body, headers: raw, status: res.status, statusText: res.statusText };
       });
     },
-    connect: function () {
-      throw new Error('[redproxy] websockets are not wired up yet');
+    /* Live connections (GeForce NOW's signalling, and anything else that
+       holds a socket open) go to our own /rp-ws/ endpoint, which opens the
+       real socket outward and pipes both directions.
+
+       Returns [send, close] because that is the contract scramjet's
+       ProxyTransport expects -- it hands us the four callbacks and takes
+       back the two functions it will drive the socket with. */
+    connect: function (url, protocols, requestHeaders, onopen, onmessage, onclose, onerror) {
+      var wsBase = ORIGIN.replace(/^http/, 'ws') + '/rp-ws/?url=' + codecEncode(String(url));
+      var sock;
+      try {
+        sock = protocols && protocols.length
+          ? new WebSocket(wsBase, protocols)
+          : new WebSocket(wsBase);
+      } catch (err) {
+        onerror(String(err && err.message || err));
+        return [function () {}, function () {}];
+      }
+
+      // Binary frames must arrive as ArrayBuffer; the default (Blob) would
+      // make scramjet's consumers do async reads they do not expect.
+      sock.binaryType = 'arraybuffer';
+
+      sock.onopen = function () { onopen(sock.protocol || '', ''); };
+      sock.onmessage = function (ev) { onmessage(ev.data); };
+      sock.onclose = function (ev) { onclose(ev.code, ev.reason); };
+      sock.onerror = function () { onerror('websocket error'); };
+
+      return [
+        function send(data) {
+          try { sock.send(data); } catch (err) { onerror(String(err && err.message || err)); }
+        },
+        function close(code, reason) {
+          try { sock.close(code, reason); } catch (err) { /* already closed */ }
+        },
+      ];
     },
   };
 
