@@ -855,6 +855,69 @@ function serveScramjetAsset(req, res, rootDir, relPath, extraHeaders, isolate = 
   });
 }
 
+/* ── Server-side Red Proxy plumbing ───────────────────────────────
+   redproxy/ssr.mjs is ESM because the scramjet bundle is; this file is
+   CommonJS, so it is brought in with a dynamic import and memoised. The
+   promise is cached even on failure paths only after success, so a
+   transient problem can be retried instead of being latched forever. */
+let serverScramjetPromise = null;
+function getServerScramjet(req) {
+  if (!serverScramjetPromise) {
+    const proto = (req && req.headers['x-forwarded-proto']) ||
+      (req && req.socket && req.socket.encrypted ? 'https' : 'http');
+    const host = (req && req.headers.host) || `localhost:${PORT}`;
+    serverScramjetPromise = import('./redproxy/ssr.mjs')
+      .then((m) => m.createServerScramjet({
+        scramjetDist: scramjetPath,
+        prefixPath: '/rp/',
+        origin: `${proto}://${host}`,
+      }))
+      .catch((err) => {
+        serverScramjetPromise = null; // allow a retry on the next request
+        throw err;
+      });
+  }
+  return serverScramjetPromise;
+}
+
+async function serveServerSideProxy(req, res, pathname) {
+  try {
+    const ssr = await getServerScramjet(req);
+    await ssr.handle(req, res, pathname);
+  } catch (err) {
+    console.error('[redproxy/ssr]', err && err.stack || err);
+    if (res.headersSent) return res.end();
+    res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8', ...CORS_HEADERS });
+    res.end('Red Proxy could not load that page: ' + (err && err.message || err));
+  }
+}
+
+/* The rewriter's wasm, handed to the page as a script that installs it.
+   Built once and cached: it is ~590KB raw, and base64 of it is bigger
+   still, so re-encoding per request would be real CPU for no reason. */
+let rewriterWasmScript = null;
+function serveRewriterWasmScript(req, res) {
+  try {
+    if (!rewriterWasmScript) {
+      const wasm = fs.readFileSync(path.join(scramjetPath, 'scramjet.wasm'));
+      rewriterWasmScript =
+        'globalThis.$scramjet.setWasm(Uint8Array.from(atob("' +
+        wasm.toString('base64') +
+        '"), function (c) { return c.charCodeAt(0); }));';
+    }
+    res.writeHead(200, {
+      'content-type': 'application/javascript; charset=utf-8',
+      'cache-control': 'public, max-age=3600',
+      ...CORS_HEADERS,
+    });
+    res.end(rewriterWasmScript);
+  } catch (err) {
+    console.error('[redproxy/ssr] wasm script', err);
+    res.writeHead(500, { 'content-type': 'text/plain' });
+    res.end('could not build the rewriter wasm script');
+  }
+}
+
 /* ── Parse a JSON request body ─────────────────────────────────── */
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -1291,6 +1354,31 @@ const server = http.createServer((req, res) => {
   if (pathname.startsWith('/libcurl/')) {
     return serveScramjetAsset(req, res, libcurlPath, pathname.slice('/libcurl/'.length));
   }
+
+  /* ── Server-side Red Proxy (no service worker) ────────────────────
+     Scramjet's rewriter runs in THIS process rather than in a browser
+     service worker, so every URL already points back here by the time the
+     browser sees the page and there is nothing left to intercept. That is
+     what lets a proxied page render in a blob: tab, where a service worker
+     can never exist, and with no iframe anywhere.
+
+     See redproxy/ssr.mjs. It is ESM (the scramjet bundle is), so it is
+     imported lazily and memoised rather than required at startup -- this
+     file is CommonJS, and a failure to load must degrade to an error page
+     rather than take the whole site down at boot. */
+  if (pathname === '/rp-client.js') {
+    return serveScramjetAsset(req, res, path.join(STATIC, 'redproxy'), 'rp-client.js',
+      { 'cache-control': 'no-cache' }, false);
+  }
+  if (pathname === '/rp-wasm.js') {
+    // The JS rewriter needs its wasm inside the page. Handed over as a
+    // script rather than fetched, so it is in place before any rewritten
+    // script runs and cannot race them.
+    return serveRewriterWasmScript(req, res);
+  }
+  if (pathname === '/rp/' || pathname.startsWith('/rp/')) {
+    return serveServerSideProxy(req, res, pathname);
+  }
   /* ── Scramjet Controller's internal proxy prefix, reaching this SERVER
      directly ── "/~/sj/" (config.prefix's real, stable default -- confirmed
      by reading controller.api.js's dist) is where every actual proxied
@@ -1502,6 +1590,18 @@ const server = http.createServer((req, res) => {
 server.on('upgrade', (req, socket, head) => {
   if (req.url === '/wisp/' || req.url.startsWith('/wisp/')) {
     return wispServer.routeRequest(req, socket, head);
+  }
+  /* Server-side Red Proxy's socket relay. Sites that hold a connection
+     open -- GeForce NOW's signalling above all -- come through here, and
+     ssr.mjs opens the real socket outward and pipes both ways. */
+  if (req.url === '/rp-ws/' || req.url.startsWith('/rp-ws/')) {
+    getServerScramjet(req)
+      .then((ssr) => ssr.handleUpgrade(req, socket, head))
+      .catch((err) => {
+        console.error('[redproxy/ssr] upgrade failed', err && err.stack || err);
+        socket.destroy();
+      });
+    return;
   }
   socket.destroy();
 });
