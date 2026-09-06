@@ -1048,9 +1048,9 @@ label.section-label {
 #redproxy .status { margin: 0 var(--sp-md); flex-shrink: 0; }
 #redproxy .status:empty { display: none; }
 
-/* Shown while the proxy is starting, and replaced by an idle prompt once
-   it is ready. redproxy/frame.js drives the text and hides it on the
-   first navigation. */
+/* The hint shown in the Red Proxy tab. There is no viewport behind it --
+   proxied pages open in their own tab -- so it sits on its own panel to
+   stay readable over a wallpaper theme. */
 .rp-splash {
   position: absolute;
   inset: 0;
@@ -1883,24 +1883,19 @@ footer {
   </section>
 
   <!-- ── RED PROXY ────────────────────────────────────────────────────
-       The proxy runs in THIS document. The toolbar below is the real
-       thing, and redproxy/frame.js -- the same file the standalone
-       /redproxy/frame.html page uses -- is loaded into this page on first
-       open and drives these exact elements. There is no wrapper page and
-       no wrapper iframe in the normal case.
+       Just a toolbar. Typing a URL fetches it from Red Portal's own /rp/
+       endpoint, where scramjet rewrites the page server-side, and opens
+       the result as a blob: tab so the address stays cloaked.
 
-       There is no viewport here and no iframe anywhere. Proxied pages
-       open as real top-level tabs at the Controller's prefix; this
-       document stays behind as the engine that serves them, because the
-       service worker answers every proxied request by RPC back to the
-       Controller living here. Closing Red Portal therefore stops those
-       tabs working, which the toolbar reports rather than hiding.
-
-       The one case this document cannot be the engine is Red Portal
-       having itself been re-hosted as a blob: URL by an external
-       launcher: a blob: page cannot use service workers at all. There it
-       opens the standalone /redproxy/frame.html as a real portal-origin
-       tab to act as the engine. See openRedProxy(). -->
+       Nothing renders here and there is no iframe anywhere in Red Portal.
+       There is also nothing to keep running: with the rewriting done on
+       the server, every URL in the page already points at Red Portal
+       absolutely, so there is no service worker to intercept anything and
+       no engine for this tab to host. That is what makes a blob: tab
+       possible at all -- a blob: document can never have a service worker
+       (registering from one fails with InvalidStateError and it is never
+       controlled), which is why the previous, worker-based design could
+       not do this. See rpOpen() in the script below. -->
   <section id="redproxy" class="section" aria-label="Red Proxy">
     <div class="rp-toolbar" id="rp-toolbar">
       <button type="button" id="rp-back" class="rp-nav-btn" title="Back" disabled>&lsaquo;</button>
@@ -2351,46 +2346,27 @@ footer {
     }
   });
 
-  /* ── Red Proxy — opens the proxy ──────────────────────────────────
-     Normally the proxy runs in THIS document: opening the tab loads
-     redproxy/frame.js, which registers the service worker, builds the
-     Scramjet Controller and the libcurl transport, opens the wisp
-     connection back to this same server, and drives the toolbar markup in
-     the #redproxy section above. No wrapper page, no wrapper iframe.
+  /* ── Red Proxy ────────────────────────────────────────────────────
+     Pages are fetched from Red Portal's own /rp/ endpoint, where scramjet
+     rewrites them server-side, and then opened as blob: tabs so the
+     address stays cloaked.
 
-     The worker takes root scope specifically so that THIS document is one
-     of its controlled clients -- it talks to its page via
-     clients.matchAll(), which returns only controlled clients, and the
-     cookie sync and worker-revival messages both travel that way. It
-     still leaves the rest of the site alone: it returns from its fetch
-     handler without responding to anything it does not proxy. Full
-     reasoning in the SW_SCOPE comment in redproxy/frame.js.
+     This is only possible because the rewriting moved to the server. The
+     old design needed a service worker to intercept the proxied page's
+     requests, and a blob: document can never have one -- registering from
+     one fails with InvalidStateError and it is never controlled, which was
+     measured directly rather than assumed. With every URL already
+     rewritten to an absolute Red Portal address before the browser sees
+     it, there is nothing left to intercept, so the page renders fine from
+     a blob: URL, from a plain tab, or anywhere else.
 
-     Proxied pages do not render here. They open as real top-level tabs
-     at the Controller's own prefix, which is why Red Portal now contains
-     no iframe at all. This document stays the engine for them, so it has
-     to remain open while they are in use.
+     No engine, no boot sequence, no worker keepalive, and nothing for Red
+     Portal to keep alive after the tab opens. */
 
-     The one exception is Red Portal having itself been re-hosted as a
-     blob: URL by an external launcher, where it cannot be the engine. A
-     blob: document cannot use service workers at all -- registering from
-     one fails with InvalidStateError and even getRegistrations() throws,
-     confirmed directly in Chrome -- and that holds even though a blob
-     does inherit the origin of whoever created it. So in that case
-     clicking Red Proxy opens the standalone /redproxy/frame.html as a
-     genuine portal-origin tab, which becomes the engine instead. Same
-     frame.js either way; only where it runs differs, and no iframe is
-     involved in either path. */
-
-  /** Red Portal's real origin.
-   *
-   *  Normally just location.origin. It is not, in a blob-wrapped copy of
-   *  this page, where location.origin reports whatever origin created
-   *  the blob. A blob-wrapped copy injects a <base> pointing at the real
-   *  site for relative-link resolution, so that is preferred when
-   *  present -- the same signal getPortalOrigin() uses for the game
-   *  launcher further down. PORTAL_ORIGIN is the last resort, for a
-   *  wrapper that injected no <base> at all. */
+  /** Red Portal's real origin. Normally location.origin; not that in a
+   *  blob-wrapped copy of this page, where location.origin reports
+   *  whichever origin created the blob. A blob-wrapped copy injects a
+   *  <base> pointing at the real site, so prefer that when present. */
   const PORTAL_ORIGIN = 'https://redportal.dpdns.org';
 
   function redProxyOrigin() {
@@ -2399,61 +2375,93 @@ footer {
       try { return new URL(baseEl.href).origin; } catch (_) { /* fall through */ }
     }
     if (location.protocol === 'https:' || location.protocol === 'http:') {
-      return location.origin;   // normal tab, and local dev on localhost
+      return location.origin;   // normal tab, and local dev
     }
-    return PORTAL_ORIGIN;       // blob: (or any other) wrapper with no <base>
+    return PORTAL_ORIGIN;       // blob: wrapper that injected no <base>
   }
 
-  /** True when this copy of Red Portal is itself running from a blob:
-   *  URL, i.e. an external launcher fetched this page and re-hosted it.
-   *  That is the only situation in which the proxy cannot run in this
-   *  document. */
-  function isRedPortalItselfBlobWrapped() {
-    return location.protocol === 'blob:' || location.href.startsWith('blob:');
-  }
-
-  const $rpToolbar = document.getElementById('rp-toolbar');
   const $rpStatus  = document.getElementById('rp-status');
   const $rpSplash  = document.getElementById('rp-splash');
+  const $rpAddress = document.getElementById('rp-address');
+  const $rpForm    = document.getElementById('rp-form');
 
-  let rpOpened = false;
+  function rpSetStatus(message, isError) {
+    if (!$rpStatus) return;
+    $rpStatus.textContent = message || '';
+    $rpStatus.classList.toggle('err', !!isError);
+  }
 
-  /** Starts the proxy on first open and does nothing on subsequent ones,
-   *  so re-opening the tab leaves the engine and its opened tabs alone
-   *  rather than resetting anything. */
-  function openRedProxy() {
-    if (rpOpened) return;
-    rpOpened = true;
+  function rpSetHint(message) {
+    const p = $rpSplash && $rpSplash.querySelector('p');
+    if (p) p.textContent = message;
+  }
 
-    if (isRedPortalItselfBlobWrapped()) {
-      /* This document cannot be the engine: a blob: page cannot use
-         service workers at all. Open the standalone page as a real
-         portal-origin tab and let it be the engine instead -- it brings
-         its own identical toolbar, so ours would be a dead duplicate. */
-      $rpToolbar.hidden = true;
-      const engine = window.open(redProxyOrigin() + '/redproxy/frame.html', '_blank');
-      const p = $rpSplash.querySelector('p');
-      if (p) {
-        p.textContent = engine
-          ? 'Red Proxy opened in a new tab.'
-          : 'Your browser blocked the new tab. Allow pop-ups for this site, then click Red Proxy again.';
-      }
-      if (!engine) rpOpened = false;   // let them retry once pop-ups are allowed
+  /** Turn what was typed into a URL: a real one, a bare hostname, or a
+   *  search. A single-label host with no dot is treated as a search, so
+   *  "red portal" does not become a bogus navigation. */
+  function rpToTargetUrl(input) {
+    try { return new URL(input).toString(); } catch (_) { /* not a URL */ }
+    try {
+      const url = new URL('https://' + input);
+      if (url.hostname.includes('.')) return url.toString();
+    } catch (_) { /* not a hostname */ }
+    return 'https://www.google.com/search?q=' + encodeURIComponent(input);
+  }
+
+  async function rpOpen(input) {
+    const value = (input || '').trim();
+    if (!value) return;
+    const target = rpToTargetUrl(value);
+
+    /* Open the tab FIRST, inside the click that triggered this. Opening it
+       after the await would fall outside the user-gesture window and be
+       blocked as a pop-up. */
+    const tab = window.open('', '_blank');
+    if (!tab) {
+      rpSetStatus('Your browser blocked the new tab. Allow pop-ups for this site, then try again.', true);
       return;
     }
 
-    // Normal tab: run the proxy right here. frame.js boots as soon as it
-    // loads and binds to the elements already in the section above, so
-    // loading it lazily is what keeps merely having the section in the
-    // DOM from ever starting a service worker.
-    const s = document.createElement('script');
-    s.src = '/redproxy/frame.js';
-    s.async = false;
-    s.onerror = () => {
-      $rpStatus.textContent = 'Red Proxy failed to load.';
-      $rpStatus.classList.add('err');
-    };
-    document.head.appendChild(s);
+    rpSetStatus('Loading…');
+    try {
+      /* X-RP-Dest matters. fetch() always reports Sec-Fetch-Dest: empty,
+         so without this the server treats the page as a subresource and
+         returns it without document rewriting or the injected client --
+         it renders, but none of its scripts are proxied. */
+      const res = await fetch(
+        redProxyOrigin() + '/rp/' + encodeURIComponent(target),
+        { credentials: 'include', headers: { 'X-RP-Dest': 'document' } }
+      );
+      const html = await res.text();
+      // A blob: URL keeps the address cloaked. Every URL inside already
+      // points at Red Portal absolutely, so nothing depends on the
+      // document's own base.
+      const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      tab.location.replace(blobUrl);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      rpSetStatus('');
+      rpSetHint('Opened in a new tab.');
+    } catch (err) {
+      console.error('[redproxy]', err);
+      try { tab.close(); } catch (_) { /* already gone */ }
+      rpSetStatus('Could not open that page: ' + err.message, true);
+    }
+  }
+
+  if ($rpForm) {
+    $rpForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      rpOpen($rpAddress ? $rpAddress.value : '');
+    });
+  }
+
+  function openRedProxy() {
+    // Nothing to start: there is no worker and no engine to boot. Just
+    // make the toolbar usable.
+    if ($rpAddress) $rpAddress.disabled = false;
+    const go = document.getElementById('rp-go');
+    if (go) go.disabled = false;
+    rpSetHint('Type a URL or search above to get started.');
   }
 
   $navRedProxy.addEventListener('click', e => {

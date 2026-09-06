@@ -217,8 +217,18 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin })
   }
 
   function guessDestination(req) {
+    /* An explicit override, and the reason it has to exist: Red Portal
+       fetches a page with fetch() so it can hand the result to a blob:
+       tab, and fetch() always reports Sec-Fetch-Dest: empty. Treated as a
+       subresource, the page comes back without document rewriting and
+       without the injected client -- it renders, but none of its scripts
+       are proxied and $scramjet is never defined. */
+    const override = req.headers['x-rp-dest'];
+    if (override) return override;
+
     const d = req.headers['sec-fetch-dest'];
     if (d && d !== 'empty') return d;
+    if (req.headers['sec-fetch-mode'] === 'navigate') return 'document';
     const accept = req.headers.accept || '';
     if (accept.includes('text/html')) return 'document';
     return 'empty';

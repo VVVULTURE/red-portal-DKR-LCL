@@ -25,10 +25,24 @@
     return;
   }
 
-  /* Read these before hooking. Once the client is installed it replaces
-     location with a proxy that reports the TARGET site's URL, so asking
-     afterwards would give the proxied site's origin instead of ours. */
-  var ORIGIN = location.origin;
+  /* Red Portal's origin, taken from this script's own absolute src rather
+     than from location.
+
+     Two reasons it cannot be location.origin. A proxied page may be opened
+     as a blob: document so its address stays cloaked, and a blob inherits
+     the origin of whoever created it -- which is not Red Portal when the
+     portal was itself launched by a foreign blob launcher. And once the
+     client below is installed it replaces location with a proxy reporting
+     the TARGET site's URL, so asking afterwards gives the wrong answer
+     entirely. The script tag the server injects is always absolute, so
+     this is correct in every one of those cases. */
+  var ORIGIN = (function () {
+    try {
+      var src = document.currentScript && document.currentScript.src;
+      if (src) return new URL(src).origin;
+    } catch (e) { /* fall through */ }
+    return location.origin;
+  })();
   var PREFIX = ORIGIN + '/rp/';
 
   function codecEncode(input) { return input ? encodeURIComponent(input) : input; }
