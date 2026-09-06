@@ -48,11 +48,25 @@
   function codecEncode(input) { return input ? encodeURIComponent(input) : input; }
   function codecDecode(input) { return input ? decodeURIComponent(input) : input; }
 
+  /* Carry our own ?v= through to anything we inject, so a page rewritten
+     on the client asks for exactly the runtime this document is running
+     rather than whatever a CDN still has cached. */
+  var VERSION = (function () {
+    try {
+      var src = document.currentScript && document.currentScript.src;
+      if (src) {
+        var q = new URL(src).searchParams.get('v');
+        if (q) return '?v=' + encodeURIComponent(q);
+      }
+    } catch (e) { /* fall through */ }
+    return '';
+  })();
+
   function getInjectScripts(meta, handler, htmlcontext, script) {
     return [
-      script(ORIGIN + '/scram/scramjet.js'),
-      script(ORIGIN + '/rp-wasm.js'),
-      script(ORIGIN + '/rp-client.js'),
+      script(ORIGIN + '/scram/scramjet.js' + VERSION),
+      script(ORIGIN + '/rp-wasm.js' + VERSION),
+      script(ORIGIN + '/rp-client.js' + VERSION),
     ];
   }
 

@@ -860,6 +860,34 @@ function serveScramjetAsset(req, res, rootDir, relPath, extraHeaders, isolate = 
    CommonJS, so it is brought in with a dynamic import and memoised. The
    promise is cached even on failure paths only after success, so a
    transient problem can be retried instead of being latched forever. */
+/* A version stamp for the injected runtime scripts, derived from the two
+   files that actually change: the rewriter wasm and the client. Deploys
+   change the stamp, so Cloudflare cannot keep handing browsers an old
+   client to run against a new server -- which already happened once, with
+   /rp-wasm.js serving a cached copy of the SPA fallback from before that
+   route existed. Computed once and reused. */
+let rpAssetVersionCache = null;
+function rpAssetVersion() {
+  if (rpAssetVersionCache) return rpAssetVersionCache;
+  try {
+    const parts = [];
+    for (const f of [
+      path.join(scramjetPath, 'scramjet.wasm'),
+      path.join(STATIC, 'redproxy', 'rp-client.js'),
+    ]) {
+      const s = fs.statSync(f);
+      parts.push(`${s.size}-${Math.floor(s.mtimeMs)}`);
+    }
+    rpAssetVersionCache = require('crypto')
+      .createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 10);
+  } catch (err) {
+    // Never let a stat failure stop the proxy; just lose the busting.
+    console.error('[redproxy/ssr] could not derive an asset version', err);
+    rpAssetVersionCache = String(Date.now());
+  }
+  return rpAssetVersionCache;
+}
+
 let serverScramjetPromise = null;
 function getServerScramjet(req) {
   if (!serverScramjetPromise) {
@@ -871,6 +899,7 @@ function getServerScramjet(req) {
         scramjetDist: scramjetPath,
         prefixPath: '/rp/',
         origin: `${proto}://${host}`,
+        assetVersion: rpAssetVersion(),
       }))
       .catch((err) => {
         serverScramjetPromise = null; // allow a retry on the next request

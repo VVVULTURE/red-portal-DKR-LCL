@@ -12,7 +12,14 @@
 #   Dockerfile
 #   .dockerignore
 
-FROM node:20-alpine
+# Node 24, not 20, and this is a hard requirement rather than a preference.
+# Scramjet's shipped bundle uses inline regular-expression modifier groups
+# -- "(?i:url)" appears twice in its CSS rewriter -- which need V8 12.5 or
+# newer, i.e. Node 23+. On Node 20 the proxy dies at the first stylesheet
+# with "Invalid regular expression: /(?i:url)\(...", which is exactly how
+# this surfaced: every proxied page worked locally on Node 26 and returned
+# 502 on Render.
+FROM node:24-alpine
 
 # Tell Node.js (and any future deps) we are in production:
 #   • enables V8 optimisations

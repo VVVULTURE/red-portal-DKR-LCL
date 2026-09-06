@@ -44,7 +44,13 @@ const SESSION_COOKIE = 'rp_sid';
 const MAX_SESSIONS = 500;
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000;
 
-export async function createServerScramjet({ scramjetDist, prefixPath, origin }) {
+export async function createServerScramjet({ scramjetDist, prefixPath, origin, assetVersion }) {
+  /* Injected script URLs carry a version so a deploy cannot leave browsers
+     running an older client against a newer server. Cloudflare sits in
+     front of this origin and honours the long max-age these scripts are
+     served with, which already bit once: /rp-wasm.js kept returning a
+     cached copy of the SPA fallback from before the route existed. */
+  const v = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : '';
   const sj = await import(new URL('scramjet.mjs', `file:///${scramjetDist}/`).href);
   sj.setWasm(new Uint8Array(readFileSync(`${scramjetDist}/scramjet.wasm`)));
 
@@ -106,9 +112,9 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin })
    *  rewriter, and only then can the client boot against them. */
   function getInjectScripts(meta, handler, htmlcontext, script) {
     return [
-      script(`${origin}/scram/scramjet.js`),
-      script(`${origin}/rp-wasm.js`),
-      script(`${origin}/rp-client.js`),
+      script(`${origin}/scram/scramjet.js${v}`),
+      script(`${origin}/rp-wasm.js${v}`),
+      script(`${origin}/rp-client.js${v}`),
     ];
   }
 
