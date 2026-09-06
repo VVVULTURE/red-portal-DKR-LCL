@@ -193,12 +193,26 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin, a
       if (chunks.length) body = Buffer.concat(chunks);
     }
 
+    /* Only forward a referrer that is itself a proxied URL. Scramjet
+       decodes the referrer back through the prefix to work out which page
+       a request came from, and a referrer pointing at Red Portal's own UI
+       is not encoded that way -- decoding it produces nonsense and the URL
+       constructor throws, surfacing as "Invalid URL" on every request.
+
+       This only bit navigations, which is what made it confusing: the same
+       URL returned 200 from curl (no Referer sent) and 502 from a browser
+       tab, and subresource requests were unaffected because they take a
+       different path through the parser. */
+    const prefixHref = new URL(prefixPath, origin).href;
+    const referer = req.headers.referer || '';
+    const proxiedReferer = referer.startsWith(prefixHref) ? referer : null;
+
     const out = await handler.handleFetch({
       rawUrl: proxiedUrl,
-      rawReferrer: req.headers.referer || null,
+      rawReferrer: proxiedReferer,
       rawDestination: guessDestination(req),
       mode: req.headers['sec-fetch-mode'] || 'navigate',
-      referrer: req.headers.referer || '',
+      referrer: proxiedReferer || '',
       method: req.method,
       body,
       cache: 'default',
