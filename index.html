@@ -1045,21 +1045,6 @@ label.section-label {
 }
 .rp-form #rp-address { flex: 1; min-width: 0; }
 
-/* The Cloak switch. Sits with the toolbar controls rather than in the
-   settings panel because it is a per-site decision, not a preference. */
-.rp-cloak {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-shrink: 0;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-}
-.rp-cloak input { cursor: pointer; }
-.rp-cloak:hover { color: var(--text); }
 
 #redproxy .status { margin: 0 var(--sp-md); flex-shrink: 0; }
 #redproxy .status:empty { display: none; }
@@ -1921,15 +1906,6 @@ footer {
         <input id="rp-address" type="text" placeholder="Search or enter a URL"
                autocomplete="off" autocapitalize="off" spellcheck="false" disabled>
         <button type="submit" id="rp-go" class="btn-primary" disabled>Go</button>
-        <!-- Cloaking and app compatibility genuinely conflict, so this is a
-             choice rather than a setting with a right answer. A blob: tab
-             hides the address, but scramjet works out which site a page is
-             by decoding it from that page's own URL, and a blob URL has no
-             room for it. Sites that never look at their own URL are fine;
-             single-page apps read it to route and come up blank. -->
-        <label class="rp-cloak" title="Hide the address in a blob: tab. Turn off for sites that come up blank, like GeForce NOW.">
-          <input type="checkbox" id="rp-cloak" checked> Cloak
-        </label>
       </form>
     </div>
     <p class="status" id="rp-status" aria-live="polite"></p>
@@ -2433,26 +2409,6 @@ footer {
     return 'https://www.google.com/search?q=' + encodeURIComponent(input);
   }
 
-  /* Whether to hide the address in a blob: tab. Remembered, because which
-     way someone wants it depends on what they mostly use the proxy for. */
-  const RP_CLOAK_KEY = 'redproxy.cloak';
-  const $rpCloak = document.getElementById('rp-cloak');
-
-  function rpCloakEnabled() {
-    return !$rpCloak || $rpCloak.checked;
-  }
-
-  if ($rpCloak) {
-    try {
-      const saved = localStorage.getItem(RP_CLOAK_KEY);
-      if (saved !== null) $rpCloak.checked = saved === '1';
-    } catch (_) { /* storage blocked; keep the default */ }
-    $rpCloak.addEventListener('change', () => {
-      try { localStorage.setItem(RP_CLOAK_KEY, $rpCloak.checked ? '1' : '0'); }
-      catch (_) { /* not worth surfacing */ }
-    });
-  }
-
   async function rpOpen(input) {
     const value = (input || '').trim();
     if (!value) return;
@@ -2469,16 +2425,6 @@ footer {
 
     const proxied = redProxyOrigin() + '/rp/' + encodeURIComponent(target);
 
-    /* Uncloaked: just point the tab at the proxied URL. The address shows
-       redportal.dpdns.org/rp/..., and in exchange the page keeps its own
-       identity -- which is what apps that route client-side need. */
-    if (!rpCloakEnabled()) {
-      tab.location.replace(proxied);
-      rpSetStatus('');
-      rpSetHint('Opened in a new tab.');
-      return;
-    }
-
     rpSetStatus('Loading…');
     try {
       /* X-RP-Dest matters. fetch() always reports Sec-Fetch-Dest: empty,
@@ -2492,14 +2438,18 @@ footer {
       const html = await res.text();
       /* A blob: URL keeps the address hidden. Every URL inside already
          points at Red Portal absolutely, so nothing depends on the
-         document's own base -- but the page also cannot tell which site it
-         is any more, because scramjet reads that back out of the URL. That
-         is the trade the Cloak switch exposes. */
+         document's own base.
+
+         The page cannot read its own identity out of a blob URL, which is
+         what used to leave apps that route on their URL rendering nothing.
+         The server now states the target in an injected constant and
+         redproxy/rp-client.js gives the page a virtual URL from it, so a
+         cloaked tab behaves like a real one. */
       const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
       tab.location.replace(blobUrl);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
       rpSetStatus('');
-      rpSetHint('Opened in a new tab. If it comes up blank, turn Cloak off and retry.');
+      rpSetHint('Opened in a new tab.');
     } catch (err) {
       console.error('[redproxy]', err);
       try { tab.close(); } catch (_) { /* already gone */ }

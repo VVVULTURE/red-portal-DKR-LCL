@@ -147,6 +147,75 @@
     },
   };
 
+  /* Natives captured before the client hooks anything. After hooking,
+     these globals are scramjet's proxies, which report the PROXIED site's
+     view of the world -- useful to the page, useless to us. */
+  var NativeURL = URL;
+  var nativeCreateObjectURL = URL.createObjectURL.bind(URL);
+  var NativeBlob = Blob;
+  var nativeFetch = globalThis.fetch.bind(globalThis);
+  var nativeReplace = location.replace.bind(location);
+
+  var IS_BLOB = location.protocol === 'blob:';
+  var TARGET = typeof globalThis.__rpTarget === 'string' ? globalThis.__rpTarget : '';
+
+  /* Give the page a URL identity of its own.
+   * ----------------------------------------
+   * Scramjet decides which site a page is by decoding the document's own
+   * URL back through the proxy prefix. In a blob: tab there is nothing to
+   * decode -- the address is a UUID -- so the page concludes it lives at
+   * the blob, and anything that routes on its own URL renders an empty
+   * body. That is precisely why GeForce NOW came up blank in a blob tab
+   * while static pages were fine.
+   *
+   * The server states the real target in an injected constant, so replace
+   * the one getter everything else flows from with a virtual URL seeded
+   * from it. client.url feeds meta.origin and meta.base, so every URL the
+   * page resolves, every request it makes and everything scramjet rewrites
+   * follows from this. The document stays a blob; the page believes it is
+   * where it should be.
+   *
+   * Installed BEFORE hook(), because hooking reads client.url. */
+  function installVirtualIdentity(client, target) {
+    var virtual = new NativeURL(target);
+
+    Object.defineProperty(client, 'url', {
+      configurable: true,
+      get: function () { return new NativeURL(virtual.href); },
+      set: function (value) {
+        var next;
+        try { next = new NativeURL(String(value), virtual.href); }
+        catch (e) { return; }
+        virtual = next;
+        // A real navigation would leave the blob and expose the address,
+        // so fetch the destination and hand the tab another blob instead.
+        navigateCloaked(next.href);
+      },
+    });
+
+    // Let the history patch below move the virtual URL as the app routes.
+    client.__rpSetVirtual = function (href) {
+      try { virtual = new NativeURL(String(href), virtual.href); } catch (e) { /* ignore */ }
+    };
+    client.__rpGetVirtual = function () { return virtual.href; };
+    return client;
+  }
+
+  /** Navigate the tab to another proxied page without leaving blob:. */
+  function navigateCloaked(targetHref) {
+    nativeFetch(PREFIX + codecEncode(targetHref), {
+      credentials: 'include',
+      headers: { 'X-RP-Dest': 'document' },
+    })
+      .then(function (res) { return res.text(); })
+      .then(function (html) {
+        nativeReplace(nativeCreateObjectURL(new NativeBlob([html], { type: 'text/html' })));
+      })
+      .catch(function (err) {
+        console.error('[redproxy] cloaked navigation failed', err);
+      });
+  }
+
   /* Make client-side routing survive inside a blob: document.
    *
    * A blob: URL cannot change, so history.pushState and replaceState throw
@@ -161,18 +230,26 @@
    * "native" it captures is already this safe version rather than the one
    * that throws. Only in blob: documents -- everywhere else the real
    * implementation is left completely alone. */
+  var activeClient = null;
+
   function makeHistorySafeForBlob() {
-    if (location.protocol !== 'blob:') return;
+    if (!IS_BLOB) return;
     var proto = History.prototype;
     ['pushState', 'replaceState'].forEach(function (name) {
       var original = proto[name];
       if (typeof original !== 'function') return;
       proto[name] = function (state, title, url) {
+        /* Routing still has to MOVE the page's identity, or an app would
+           push a route and then still believe it was on the first one.
+           The real call cannot record it here, so record it ourselves. */
+        if (url != null && activeClient && activeClient.__rpSetVirtual) {
+          activeClient.__rpSetVirtual(url);
+        }
         try {
           return original.call(this, state, title, url);
         } catch (err) {
-          // Expected in a blob: document. The app's router carries on and
-          // scramjet still tracks where it thinks it is.
+          // Expected in a blob: document, where the URL cannot change.
+          // The app's router carries on against the virtual URL above.
           return undefined;
         }
       };
@@ -188,6 +265,15 @@
       initHeaders: [],
       history: [],
     });
+
+    /* Only in a blob: tab, and only when the server told us the target.
+       Everywhere else the document URL already carries it and scramjet's
+       own derivation is correct, so leave it completely alone. */
+    if (IS_BLOB && TARGET) {
+      installVirtualIdentity(client, TARGET);
+      if (!activeClient) activeClient = client;
+    }
+
     client.hook();
     return client;
   }

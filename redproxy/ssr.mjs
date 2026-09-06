@@ -111,9 +111,30 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin, a
    *  bearing: the bundle defines $scramjet, the wasm blob feeds the JS
    *  rewriter, and only then can the client boot against them. */
   function getInjectScripts(meta, handler, htmlcontext, script) {
+    /* Tell the page which site it is, explicitly.
+
+       Scramjet normally works this out by decoding the document's own URL,
+       which is why it cannot survive in a blob: tab -- a blob URL has
+       nowhere to carry the target, so the page ends up believing it lives
+       at a UUID and anything that routes on its own URL renders nothing.
+       The server knows the answer on every request, so state it rather
+       than making the client infer it. rp-client.js uses this to give the
+       page a URL identity independent of where the document actually
+       sits, which is what lets a cloaked tab behave like a real one. */
+    let targetHref = '';
+    try {
+      targetHref = String((meta && (meta.base || meta.origin)) || '');
+    } catch { /* fall back to letting the client infer */ }
+
+    const declareTarget =
+      'data:text/javascript;charset=utf-8;base64,' +
+      Buffer.from(`globalThis.__rpTarget=${JSON.stringify(targetHref)};`, 'utf8')
+        .toString('base64');
+
     return [
       script(`${origin}/scram/scramjet.js${v}`),
       script(`${origin}/rp-wasm.js${v}`),
+      script(declareTarget),
       script(`${origin}/rp-client.js${v}`),
     ];
   }
