@@ -310,6 +310,35 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin: f
     const headers = rawHeadersOf(out.headers);
     delete headers['content-length']; // rewriting changes the length
     delete headers['content-encoding']; // already decoded by fetch
+
+    /* Proxied responses must never be stored by a shared cache.
+       ---------------------------------------------------------
+       Two reasons, and the first is the serious one.
+
+       These responses are per visitor. They are fetched with that
+       visitor's cookie jar, so a logged-in page cached by a CDN could be
+       handed to somebody else entirely. Forwarding the origin's own
+       caching headers -- which is what happened -- invites exactly that.
+
+       And it silently breaks correctness across deploys. Cloudflare sits
+       in front of this origin and was caching /rp/ responses, so after the
+       URL format changed the browser kept receiving HTML rewritten by the
+       previous build: script tags still relative, every asset requested
+       straight from the origin site instead of through the proxy, and
+       GeForce NOW rendering nothing. It looked for a long time like a
+       production-only bug in the rewriter, because curl (a cache miss)
+       always got the correct page while the browser got the stale one.
+       Measured on the live site: 12 of 16 resources went directly to
+       NVIDIA, and the DOM still held "./handle-gdn-util.js".
+
+       Stripping the validators too, so nothing revalidates into a stored
+       copy. */
+    delete headers['etag'];
+    delete headers['last-modified'];
+    delete headers['expires'];
+    delete headers['age'];
+    headers['cache-control'] = 'private, no-store, no-cache, must-revalidate';
+    headers['cdn-cache-control'] = 'no-store';
     if (isNewSession) {
       headers['set-cookie'] = `${SESSION_COOKIE}=${sid}; Path=/; Max-Age=21600; SameSite=Lax`;
     }
