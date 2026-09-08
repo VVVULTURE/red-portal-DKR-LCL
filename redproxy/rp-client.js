@@ -75,8 +75,17 @@
   })();
   var PREFIX = ORIGIN + '/rp/';
 
-  function codecEncode(input) { return input ? encodeURIComponent(input) : input; }
-  function codecDecode(input) { return input ? decodeURIComponent(input) : input; }
+  /* Must stay identical to the codec in ssr.mjs -- the two sides encode
+     and decode the same URLs. Path-preserving on purpose: a single-segment
+     encoding makes relative URLs resolve by replacing that segment, so
+     "./x.js" from a proxied page lands on /rp/x.js with no target in it at
+     all. Only ?, # and % are escaped; see the long note in ssr.mjs. */
+  function codecEncode(input) {
+    return input ? input.replace(/%/g, '%25').replace(/\?/g, '%3F').replace(/#/g, '%23') : input;
+  }
+  function codecDecode(input) {
+    return input ? input.replace(/%23/gi, '#').replace(/%3F/gi, '?').replace(/%25/gi, '%') : input;
+  }
 
   /* Carry our own ?v= through to anything we inject, so a page rewritten
      on the client asks for exactly the runtime this document is running
@@ -308,10 +317,40 @@
     return client;
   }
 
+  /* Give a blob: document the base URL it does not have.
+   *
+   * Pages routinely leave URLs relative -- GeForce NOW loads
+   * "./handle-gdn-util.js" and "runtime.<hash>.js" that way -- and those
+   * resolve against the document's own address. In a normal tab that is
+   * the proxied URL, so they resolve straight back into the proxy. In a
+   * blob: tab the address is a UUID with no path to resolve against, so
+   * every one of them misses and the app never boots.
+   *
+   * Pointing a <base> at this document's proxied URL restores exactly the
+   * resolution a normal tab would have. It must be the FIRST base in the
+   * document, since the first one with an href wins -- GeForce NOW ships
+   * its own <base href="#"> further down -- and it must be inserted before
+   * the page's own scripts are parsed, which is why this runs here rather
+   * than after hooking. */
+  function installBaseForBlob() {
+    if (!IS_BLOB || !TARGET) return;
+    try {
+      var head = document.head || document.getElementsByTagName('head')[0];
+      if (!head) return;
+      var base = document.createElement('base');
+      base.setAttribute('href', PREFIX + codecEncode(TARGET));
+      head.insertBefore(base, head.firstChild);
+    } catch (err) {
+      rpRecord('base', 'could not install base: ' + err.message);
+    }
+  }
+
   try {
+    installBaseForBlob();       // before the page's own scripts resolve
     makeHistorySafeForBlob();   // must run before the client captures natives
     bootClient(globalThis);
   } catch (err) {
+    rpRecord('boot', (err && err.message) || String(err));
     console.error('[redproxy] client failed to hook', err);
   }
 })();
