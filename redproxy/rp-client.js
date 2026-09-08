@@ -48,6 +48,24 @@
     var r = ev && ev.reason;
     rpRecord('rejection', (r && (r.message || r)) || 'unknown');
   });
+  /* Frameworks usually report a failed bootstrap through console.error
+     rather than by throwing, so a page can come up blank with nothing on
+     the error events at all. Mirror those too -- the original console is
+     left intact and still called. */
+  (function () {
+    var original = console.error;
+    console.error = function () {
+      try {
+        var parts = [];
+        for (var i = 0; i < arguments.length && i < 4; i++) {
+          var a = arguments[i];
+          parts.push(a && a.message ? a.message : String(a));
+        }
+        rpRecord('console', parts.join(' ').slice(0, 300));
+      } catch (e) { /* diagnostics must never break the page */ }
+      return original.apply(console, arguments);
+    };
+  })();
 
   var sj = globalThis.$scramjet;
   if (!sj || !sj.ScramjetClient) {
@@ -84,7 +102,13 @@
     return input ? input.replace(/%/g, '%25').replace(/\?/g, '%3F').replace(/#/g, '%23') : input;
   }
   function codecDecode(input) {
-    return input ? input.replace(/%23/gi, '#').replace(/%3F/gi, '?').replace(/%25/gi, '%') : input;
+    if (!input) return input;
+    var decoded = input.replace(/%23/gi, '#').replace(/%3F/gi, '?').replace(/%25/gi, '%');
+    // Also accept the older fully percent-encoded form; see ssr.mjs.
+    if (/^https?%3A/i.test(decoded)) {
+      try { return decodeURIComponent(decoded); } catch (e) { return decoded; }
+    }
+    return decoded;
   }
 
   /* Carry our own ?v= through to anything we inject, so a page rewritten

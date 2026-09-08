@@ -102,8 +102,19 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin: f
      every proxied page, so they must stay self-contained. */
   const codecEncode = (input) =>
     input ? input.replace(/%/g, '%25').replace(/\?/g, '%3F').replace(/#/g, '%23') : input;
-  const codecDecode = (input) =>
-    input ? input.replace(/%23/gi, '#').replace(/%3F/gi, '?').replace(/%25/gi, '%') : input;
+  const codecDecode = (input) => {
+    if (!input) return input;
+    const decoded = input.replace(/%23/gi, '#').replace(/%3F/gi, '?').replace(/%25/gi, '%');
+    /* Also accept the older fully percent-encoded form. A browser holding a
+       cached copy of Red Portal keeps sending /rp/https%3A%2F%2Fsite%2F
+       after a deploy, and rejecting it answers "unable to parse rewritten
+       url" on every page -- which is exactly what happened when the codec
+       changed and one of the three copies was missed. Cheap to accept. */
+    if (/^https?%3A/i.test(decoded)) {
+      try { return decodeURIComponent(decoded); } catch (e) { return decoded; }
+    }
+    return decoded;
+  };
 
   /** ProxyTransport over Node's own fetch. This server has direct internet
    *  access, so unlike the browser build there is no wisp relay in the path
