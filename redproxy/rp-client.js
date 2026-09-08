@@ -19,6 +19,36 @@
   if (globalThis.__rpClientBooted) return;
   globalThis.__rpClientBooted = true;
 
+  /* Keep a short record of anything that blows up in a proxied page.
+   *
+   * Worth carrying permanently. A proxied page is frequently a blob:
+   * document, and a blob document cannot be opened in devtools or attached
+   * to by an extension -- so when one comes up blank there is otherwise no
+   * way at all to find out why. The page that opened it is same-origin
+   * with it, so it can read this back out. Capped, and never anything but
+   * strings. */
+  var RP_ERROR_LIMIT = 25;
+  globalThis.__rpErrors = [];
+  function rpRecord(kind, message, extra) {
+    try {
+      if (globalThis.__rpErrors.length >= RP_ERROR_LIMIT) return;
+      globalThis.__rpErrors.push(
+        kind + ': ' + String(message) + (extra ? ' @ ' + String(extra) : '')
+      );
+    } catch (e) { /* never let diagnostics break the page */ }
+  }
+  addEventListener('error', function (ev) {
+    if (ev && ev.target && ev.target !== globalThis && ev.target.src) {
+      rpRecord('resource', 'failed to load', ev.target.src);
+      return;
+    }
+    rpRecord('error', (ev && ev.message) || 'unknown', ev && ev.filename);
+  }, true);
+  addEventListener('unhandledrejection', function (ev) {
+    var r = ev && ev.reason;
+    rpRecord('rejection', (r && (r.message || r)) || 'unknown');
+  });
+
   var sj = globalThis.$scramjet;
   if (!sj || !sj.ScramjetClient) {
     console.error('[redproxy] scramjet bundle missing; the page will not be proxied');
