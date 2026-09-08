@@ -181,9 +181,22 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin: f
        than making the client infer it. rp-client.js uses this to give the
        page a URL identity independent of where the document actually
        sits, which is what lets a cloaked tab behave like a real one. */
+    /* meta.origin, NOT meta.base -- they are different things and the
+       difference is the whole GeForce NOW sign-in.
+
+       meta.origin is the URL of the document being rewritten. meta.base is
+       whatever the page's own <base> element says, which exists to resolve
+       relative URLs and is routinely just "/". NVIDIA's login page is an
+       Angular app and ships <base href="/">, so preferring base handed the
+       page an identity of "https://login.nvgs.nvidia.com/" with the path
+       and query -- including the single-use "key" the sign-in is carried
+       by -- thrown away. The app booted, found no route and no key, and
+       rendered its own "This Page Isn't Available" 404, which looks
+       exactly like the server having refused the request. It had not:
+       NVIDIA returned 200 to every one of those requests. */
     let targetHref = '';
     try {
-      targetHref = String((meta && (meta.base || meta.origin)) || '');
+      targetHref = String((meta && (meta.origin || meta.base)) || '');
     } catch { /* fall back to letting the client infer */ }
 
     const declareTarget =
@@ -343,6 +356,43 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin: f
       headers['set-cookie'] = `${SESSION_COOKIE}=${sid}; Path=/; Max-Age=21600; SameSite=Lax`;
     }
 
+    /* Cloak a navigation the browser performed by itself.
+       ----------------------------------------------------
+       rp-client tries to keep every navigation inside the blob tab by
+       fetching the destination and handing the tab a new blob, but it can
+       only intercept the mechanisms it knows about. Anything it misses --
+       a form submitted through form.submit(), a meta refresh, a redirect
+       chain, a window.open from a script -- is performed by the BROWSER,
+       which lands here with the proxied URL in the address bar.
+
+       The client used to notice that afterwards and re-fetch the page to
+       rebuild the blob. That works for an ordinary page and fails badly
+       for a URL that may only be requested once: signing in to GeForce
+       NOW navigates to a login URL carrying a single-use "key" token, and
+       the second request for it answered NVIDIA's own 404 page. The tab
+       recovered its blob and lost the sign-in.
+
+       So cloak it here instead, where the origin has been asked exactly
+       once. Return the page as a string inside a stub that swaps the tab
+       into a blob built from it. Same result, no second request, and it
+       covers navigation mechanisms nobody has enumerated -- POSTs
+       included, since the browser has already delivered the body.
+
+       Only bare top-level HTML gets this treatment: rp-client's own
+       fetches announce themselves with X-RP-Dest, subresources are not
+       documents, and a 3xx has to stay a 3xx so the browser follows it. */
+    if (isBareNavigation(req, out.status || 200, headers)) {
+      const html = await bodyText(out.body);
+      delete headers['content-security-policy'];
+      delete headers['content-security-policy-report-only'];
+      delete headers['x-frame-options'];
+      headers['content-type'] = 'text/html; charset=utf-8';
+      const stub = cloakStub(html);
+      headers['content-length'] = String(Buffer.byteLength(stub));
+      res.writeHead(200, headers);
+      return res.end(stub);
+    }
+
     res.writeHead(out.status || 200, headers);
     const b = out.body;
     if (!b) return res.end();
@@ -350,6 +400,49 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin: f
     if (typeof b.getReader === 'function') return Readable.fromWeb(b).pipe(res);
     if (b instanceof ArrayBuffer || ArrayBuffer.isView(b)) return res.end(Buffer.from(b));
     return res.end();
+  }
+
+  /** A top-level HTML document the browser navigated to on its own --
+   *  i.e. one that would otherwise be displayed at the proxied URL. */
+  function isBareNavigation(req, status, headers) {
+    if (req.headers['x-rp-dest']) return false;       // rp-client's own fetch
+    if (status >= 300 && status < 400) return false;  // let the browser follow
+    const dest = req.headers['sec-fetch-dest'];
+    const mode = req.headers['sec-fetch-mode'];
+    if (dest ? dest !== 'document' : mode !== 'navigate') return false;
+    return String(headers['content-type'] || '').toLowerCase().includes('text/html');
+  }
+
+  async function bodyText(b) {
+    if (b == null) return '';
+    if (typeof b === 'string') return b;
+    if (Buffer.isBuffer(b)) return b.toString('utf8');
+    if (ArrayBuffer.isView(b)) return Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('utf8');
+    if (b instanceof ArrayBuffer) return Buffer.from(b).toString('utf8');
+    if (typeof b.getReader === 'function') {
+      const chunks = [];
+      for await (const c of Readable.fromWeb(b)) chunks.push(c);
+      return Buffer.concat(chunks).toString('utf8');
+    }
+    return String(b);
+  }
+
+  /** Hand the page back inside a stub that immediately becomes a blob.
+   *  If that fails the page is still written out rather than lost -- an
+   *  exposed URL is a broken rule, a blank tab is a broken proxy. */
+  function cloakStub(html) {
+    /* base64, not a quoted string. The payload is arbitrary HTML: it will
+       contain </script>, and it may contain any escape sequence or line
+       separator there is. Getting that quoting subtly wrong would break
+       every proxied page at once, and base64 has none of those characters
+       in it. */
+    const b64 = Buffer.from(html, 'utf8').toString('base64');
+    return '<!doctype html><meta charset="utf-8"><title></title>'
+      + '<script>(function(){var s=atob("' + b64 + '"),n=s.length,a=new Uint8Array(n);'
+      + 'for(var i=0;i<n;i++)a[i]=s.charCodeAt(i);'
+      + 'try{location.replace(URL.createObjectURL(new Blob([a],{type:"text/html;charset=utf-8"})))}'
+      + 'catch(e){document.open();document.write(new TextDecoder().decode(a));document.close()}'
+      + '})()<' + '/script>';
   }
 
   function guessDestination(req) {

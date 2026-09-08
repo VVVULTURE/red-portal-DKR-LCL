@@ -357,48 +357,25 @@
     }, true);
   }
 
-  /* Catch-all: if a proxied page ends up at a real URL, put it back in a
-   * blob.
+  /* Anything the interceptors above miss is cloaked by the server.
    * ------------------------------------------------------------------
-   * The interceptors above cover link clicks and form submissions, and
-   * scramjet routes JS navigation through client.url. But a page has many
-   * other ways to move -- a server redirect the browser follows, a
-   * framework's own router, window.open, a meta refresh -- and missing any
-   * one of them puts the full proxied address in the address bar. Signing
-   * in to GeForce NOW did exactly that.
+   * A page has many other ways to move -- a server redirect the browser
+   * follows, a framework's own router, form.submit(), a meta refresh --
+   * and missing any one of them puts the full proxied address in the
+   * address bar. Signing in to GeForce NOW did exactly that.
    *
-   * Rather than trying to enumerate every path, fix it where it can be
-   * detected with certainty: this script only ever runs inside a proxied
-   * page, so if such a page finds itself at an http(s) address, the
-   * cloak has been broken. Re-fetch and replace with a blob.
+   * This used to be handled here, by noticing afterwards that the page was
+   * sitting at a real URL and re-fetching it to rebuild the blob. That is
+   * wrong for any URL that may only be requested once: the GeForce NOW
+   * sign-in carries a single-use token, and asking for it a second time
+   * returned NVIDIA's 404 page, so the tab got its blob back and lost the
+   * sign-in.
    *
-   * Cannot loop: the replacement document is blob:, which returns
-   * immediately, and a failed fetch simply leaves the page where it is.
-   * Top-level only -- a proxied page's own subframes are not the tab's
-   * address and must be left alone. Uses replace() so the exposed URL does
-   * not stay in history. */
-  function reblobIfExposed() {
-    if (IS_BLOB) return;                       // already cloaked
-    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
-    try { if (window.top !== window.self) return; } catch (e) { return; }
-
-    var here;
-    try { here = String(location.href); } catch (e) { return; }
-    if (here.indexOf(PREFIX) !== 0) return;    // not one of our proxied URLs
-
-    nativeFetch(here, {
-      credentials: 'include',
-      headers: { 'X-RP-Dest': 'document' },
-      redirect: 'follow',
-    })
-      .then(function (res) { return res.text(); })
-      .then(function (html) {
-        nativeReplace(nativeCreateObjectURL(new NativeBlob([html], { type: 'text/html' })));
-      })
-      .catch(function (err) {
-        rpRecord('reblob', (err && err.message) || String(err));
-      });
-  }
+   * The server now answers a bare top-level navigation with a stub that
+   * turns itself into a blob -- see isBareNavigation/cloakStub in ssr.mjs.
+   * One request, no replay, and it covers the mechanisms nobody has
+   * enumerated. The interceptors stay because they skip the address-bar
+   * flash entirely, but they are no longer what keeps the rule. */
 
   /** Open another proxied page in a NEW tab, still cloaked. */
   function openCloakedTab(targetHref) {
@@ -503,7 +480,6 @@
     makeHistorySafeForBlob();   // must run before the client captures natives
     bootClient(globalThis);
     interceptNativeNavigation(); // after hooking: needs scramjet's href getters
-    reblobIfExposed();           // last line of defence for the cloak
   } catch (err) {
     rpRecord('boot', (err && err.message) || String(err));
     console.error('[redproxy] client failed to hook', err);
