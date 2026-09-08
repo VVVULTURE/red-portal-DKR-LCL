@@ -914,7 +914,12 @@ async function serveServerSideProxy(req, res, pathname) {
     const ssr = await getServerScramjet(req);
     await ssr.handle(req, res, pathname);
   } catch (err) {
-    console.error('[redproxy/ssr]', err && err.stack || err);
+    // Log WHICH request failed. Without the URL these errors are almost
+    // unusable: a proxied page issues hundreds, and a page that comes up
+    // blank produces a wall of identical stack traces with nothing saying
+    // what was being fetched.
+    console.error('[redproxy/ssr]', req.method, (req.url || '').slice(0, 160),
+      '->', (err && err.message) || err);
     if (res.headersSent) return res.end();
     res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8', ...CORS_HEADERS });
     res.end('Red Proxy could not load that page: ' + (err && err.message || err));

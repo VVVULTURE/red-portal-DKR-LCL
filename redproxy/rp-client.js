@@ -158,7 +158,12 @@
       (headers || []).forEach(function (pair) {
         try { h.set(pair[0], pair[1]); } catch (e) { /* forbidden header */ }
       });
-      return fetch(PREFIX + codecEncode(String(remote)), {
+      /* nativeFetch, NOT the global fetch. Scramjet replaces window.fetch
+         when it hooks, and that replacement rewrites whatever URL it is
+         given -- so calling it here would rewrite a URL that is already
+         proxied, producing /rp/<our own origin>/rp/<target>, which trips
+         scramjet's own same-origin guard and fails. */
+      return nativeFetch(PREFIX + codecEncode(String(remote)), {
         method: method,
         body: body == null ? undefined : body,
         headers: h,
@@ -341,36 +346,25 @@
     return client;
   }
 
-  /* Give a blob: document the base URL it does not have.
+  /* Why there is deliberately NO <base> injected here.
    *
-   * Pages routinely leave URLs relative -- GeForce NOW loads
-   * "./handle-gdn-util.js" and "runtime.<hash>.js" that way -- and those
-   * resolve against the document's own address. In a normal tab that is
-   * the proxied URL, so they resolve straight back into the proxy. In a
-   * blob: tab the address is a UUID with no path to resolve against, so
-   * every one of them misses and the app never boots.
+   * A blob: document has no path for relative URLs to resolve against, so
+   * injecting a <base> pointing at this page's proxied URL looks like the
+   * obvious fix. It is not: scramjet's meta.base getter READS the <base>
+   * element, so relative URLs then resolved to an already-proxied URL and
+   * scramjet rewrote them a second time. Requests came out as
+   * /rp/<our origin>/rp/<target>, which trips scramjet's own same-origin
+   * guard -- GeForce NOW could not read its config.json and refused to
+   * boot, with an empty body and no thrown error.
    *
-   * Pointing a <base> at this document's proxied URL restores exactly the
-   * resolution a normal tab would have. It must be the FIRST base in the
-   * document, since the first one with an href wins -- GeForce NOW ships
-   * its own <base href="#"> further down -- and it must be inserted before
-   * the page's own scripts are parsed, which is why this runs here rather
-   * than after hooking. */
-  function installBaseForBlob() {
-    if (!IS_BLOB || !TARGET) return;
-    try {
-      var head = document.head || document.getElementsByTagName('head')[0];
-      if (!head) return;
-      var base = document.createElement('base');
-      base.setAttribute('href', PREFIX + codecEncode(TARGET));
-      head.insertBefore(base, head.firstChild);
-    } catch (err) {
-      rpRecord('base', 'could not install base: ' + err.message);
-    }
-  }
+   * With no base, meta.base falls back to client.url, which
+   * installVirtualIdentity has already set to the real target, and the
+   * server's HTML rewriter has made the markup URLs absolute anyway. Both
+   * consumers then agree. Removing the base is what made GeForce NOW
+   * render in a blob tab: 1363 characters and 30 images, up from nothing.
+   */
 
   try {
-    installBaseForBlob();       // before the page's own scripts resolve
     makeHistorySafeForBlob();   // must run before the client captures natives
     bootClient(globalThis);
   } catch (err) {
