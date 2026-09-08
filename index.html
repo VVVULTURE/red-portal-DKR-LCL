@@ -2413,6 +2413,24 @@ footer {
     return 'https://www.google.com/search?q=' + encodeURIComponent(input);
   }
 
+  /** Encode a target URL for the /rp/ prefix.
+   *
+   *  MUST match the codec in redproxy/ssr.mjs and redproxy/rp-client.js --
+   *  all three encode and decode the same URLs, and a mismatch means the
+   *  server cannot read what this sends. It is path-preserving on purpose:
+   *  percent-encoding the whole target packs it into one path segment, and
+   *  relative URLs inside a proxied page then resolve by replacing that
+   *  segment, losing the target entirely. Only ?, # and % are escaped.
+   *
+   *  This was missed once when the codec changed, and the live site
+   *  answered "unable to parse rewritten url" on every page until the
+   *  three were brought back into agreement. */
+  function rpEncodeTarget(url) {
+    return url
+      ? url.replace(/%/g, '%25').replace(/\?/g, '%3F').replace(/#/g, '%23')
+      : url;
+  }
+
   async function rpOpen(input) {
     const value = (input || '').trim();
     if (!value) return;
@@ -2427,7 +2445,7 @@ footer {
       return;
     }
 
-    const proxied = redProxyOrigin() + '/rp/' + encodeURIComponent(target);
+    const proxied = redProxyOrigin() + '/rp/' + rpEncodeTarget(target);
 
     rpSetStatus('Loading…');
     try {
