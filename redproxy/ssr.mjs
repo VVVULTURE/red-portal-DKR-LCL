@@ -72,8 +72,38 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin: f
   const sj = await import(new URL('scramjet.mjs', `file:///${scramjetDist}/`).href);
   sj.setWasm(new Uint8Array(readFileSync(`${scramjetDist}/scramjet.wasm`)));
 
-  const codecEncode = (input) => (input ? encodeURIComponent(input) : input);
-  const codecDecode = (input) => (input ? decodeURIComponent(input) : input);
+  /* Path-preserving codec.
+     ----------------------
+     encodeURIComponent turns the whole target into ONE path segment, and
+     relative URLs then resolve by replacing that segment. A page asking
+     for "./handle-gdn-util.js" from
+     /rp/https%3A%2F%2Fplay.geforcenow.com%2Fmall%2F lands on
+     /rp/handle-gdn-util.js, which carries no target at all and answers
+     502 "unable to parse rewritten url" -- verified against production.
+     Scramjet leaves relative URLs alone precisely because they are
+     supposed to resolve correctly against the proxied document, and with
+     a single-segment encoding they cannot.
+
+     Keeping the target's slashes fixes that: the same request becomes
+     /rp/https://play.geforcenow.com/mall/handle-gdn-util.js, which
+     decodes exactly as intended. Only the three characters that genuinely
+     cannot survive in a path are escaped:
+
+       ?  rewriteUrl appends scramjet's own "?params" AFTER the encoded
+          segment and unrewriteUrl does realUrl.search = "" before
+          decoding, so a literal ? would merge with those and be dropped,
+          silently losing the site's query string.
+       #  a literal fragment would end the path early; scramjet carries
+          the real hash separately.
+       %  escaped first, or decoding could not tell an escape this codec
+          produced from one already in the URL.
+
+     Both functions are serialized with toString() and re-evaluated inside
+     every proxied page, so they must stay self-contained. */
+  const codecEncode = (input) =>
+    input ? input.replace(/%/g, '%25').replace(/\?/g, '%3F').replace(/#/g, '%23') : input;
+  const codecDecode = (input) =>
+    input ? input.replace(/%23/gi, '#').replace(/%3F/gi, '?').replace(/%25/gi, '%') : input;
 
   /** ProxyTransport over Node's own fetch. This server has direct internet
    *  access, so unlike the browser build there is no wisp relay in the path
