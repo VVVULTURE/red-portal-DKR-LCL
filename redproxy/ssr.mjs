@@ -169,45 +169,67 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin: f
   /** Scripts injected at the top of every rewritten document. Order is load
    *  bearing: the bundle defines $scramjet, the wasm blob feeds the JS
    *  rewriter, and only then can the client boot against them. */
+  function declareTarget(meta) {
+  /* Tell the page which site it is, explicitly.
+
+     Scramjet normally works this out by decoding the document's own URL,
+     which is why it cannot survive in a blob: tab -- a blob URL has
+     nowhere to carry the target, so the page ends up believing it lives
+     at a UUID and anything that routes on its own URL renders nothing.
+     The server knows the answer on every request, so state it rather
+     than making the client infer it. rp-client.js uses this to give the
+     page a URL identity independent of where the document actually
+     sits, which is what lets a cloaked tab behave like a real one. */
+  /* meta.origin, NOT meta.base -- they are different things and the
+     difference is the whole GeForce NOW sign-in.
+
+     meta.origin is the URL of the document being rewritten. meta.base is
+     whatever the page's own <base> element says, which exists to resolve
+     relative URLs and is routinely just "/". NVIDIA's login page is an
+     Angular app and ships <base href="/">, so preferring base handed the
+     page an identity of "https://login.nvgs.nvidia.com/" with the path
+     and query -- including the single-use "key" the sign-in is carried
+     by -- thrown away. The app booted, found no route and no key, and
+     rendered its own "This Page Isn't Available" 404, which looks
+     exactly like the server having refused the request. It had not:
+     NVIDIA returned 200 to every one of those requests. */
+  let targetHref = '';
+  try {
+    targetHref = String((meta && (meta.origin || meta.base)) || '');
+  } catch { /* fall back to letting the client infer */ }
+
+  return (
+    'data:text/javascript;charset=utf-8;base64,' +
+    Buffer.from(`globalThis.__rpTarget=${JSON.stringify(targetHref)};`, 'utf8')
+      .toString('base64')
+  );
+  }
+
+  /* Same four scripts for a worker, but scramjet's contract here is a
+     STRING of import / importScripts statements rather than an array of
+     elements. Not implementing this hook at all is not a no-op: the call
+     itself threw, so every worker script failed to load. GeForce NOW's
+     mall page starts one, and it died with
+     "r.interface.getWorkerInjectScripts is not a function". */
+  function makeGetWorkerInjectScripts(origin) {
+    return function getWorkerInjectScripts(meta, isModule, script) {
+      return [
+        script(`${origin}/scram/scramjet.js${v}`),
+        script(`${origin}/rp-wasm.js${v}`),
+        script(declareTarget(meta)),
+        script(`${origin}/rp-client.js${v}`),
+      ].join('');
+    };
+  }
+
   function makeGetInjectScripts(origin) {
     return function getInjectScripts(meta, handler, htmlcontext, script) {
-    /* Tell the page which site it is, explicitly.
-
-       Scramjet normally works this out by decoding the document's own URL,
-       which is why it cannot survive in a blob: tab -- a blob URL has
-       nowhere to carry the target, so the page ends up believing it lives
-       at a UUID and anything that routes on its own URL renders nothing.
-       The server knows the answer on every request, so state it rather
-       than making the client infer it. rp-client.js uses this to give the
-       page a URL identity independent of where the document actually
-       sits, which is what lets a cloaked tab behave like a real one. */
-    /* meta.origin, NOT meta.base -- they are different things and the
-       difference is the whole GeForce NOW sign-in.
-
-       meta.origin is the URL of the document being rewritten. meta.base is
-       whatever the page's own <base> element says, which exists to resolve
-       relative URLs and is routinely just "/". NVIDIA's login page is an
-       Angular app and ships <base href="/">, so preferring base handed the
-       page an identity of "https://login.nvgs.nvidia.com/" with the path
-       and query -- including the single-use "key" the sign-in is carried
-       by -- thrown away. The app booted, found no route and no key, and
-       rendered its own "This Page Isn't Available" 404, which looks
-       exactly like the server having refused the request. It had not:
-       NVIDIA returned 200 to every one of those requests. */
-    let targetHref = '';
-    try {
-      targetHref = String((meta && (meta.origin || meta.base)) || '');
-    } catch { /* fall back to letting the client infer */ }
-
-    const declareTarget =
-      'data:text/javascript;charset=utf-8;base64,' +
-      Buffer.from(`globalThis.__rpTarget=${JSON.stringify(targetHref)};`, 'utf8')
-        .toString('base64');
+    const declaredTarget = declareTarget(meta);
 
       return [
         script(`${origin}/scram/scramjet.js${v}`),
         script(`${origin}/rp-wasm.js${v}`),
-        script(declareTarget),
+        script(declaredTarget),
         script(`${origin}/rp-client.js${v}`),
       ];
     };
@@ -222,6 +244,7 @@ export async function createServerScramjet({ scramjetDist, prefixPath, origin: f
         codecEncode,
         codecDecode,
         getInjectScripts: makeGetInjectScripts(origin),
+        getWorkerInjectScripts: makeGetWorkerInjectScripts(origin),
       },
     };
   }

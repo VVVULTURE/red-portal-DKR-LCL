@@ -476,10 +476,16 @@
    * render in a blob tab: 1363 characters and 30 images, up from nothing.
    */
 
+  /* A worker runs this too, and has no document and no History. Guard the
+     two DOM-only steps rather than letting them throw: the catch below
+     would otherwise swallow bootClient with them, leaving the worker with
+     no scramjet client at all -- worse than the failure being fixed. */
+  var IS_WORKER = typeof document === 'undefined';
+
   try {
-    makeHistorySafeForBlob();   // must run before the client captures natives
+    if (!IS_WORKER) makeHistorySafeForBlob(); // before the client captures natives
     bootClient(globalThis);
-    interceptNativeNavigation(); // after hooking: needs scramjet's href getters
+    if (!IS_WORKER) interceptNativeNavigation(); // after hooking: needs scramjet's href getters
   } catch (err) {
     rpRecord('boot', (err && err.message) || String(err));
     console.error('[redproxy] client failed to hook', err);
