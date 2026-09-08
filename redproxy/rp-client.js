@@ -269,18 +269,153 @@
     return client;
   }
 
-  /** Navigate the tab to another proxied page without leaving blob:. */
-  function navigateCloaked(targetHref) {
-    nativeFetch(PREFIX + codecEncode(targetHref), {
+  /** Navigate the tab to another proxied page without leaving blob:.
+   *  `init` carries method/body for form submissions. */
+  function navigateCloaked(targetHref, init) {
+    var opts = {
       credentials: 'include',
       headers: { 'X-RP-Dest': 'document' },
+      redirect: 'follow',
+    };
+    if (init) {
+      if (init.method) opts.method = init.method;
+      if (init.body != null) opts.body = init.body;
+    }
+    nativeFetch(PREFIX + codecEncode(targetHref), opts)
+      .then(function (res) { return res.text(); })
+      .then(function (html) {
+        nativeReplace(nativeCreateObjectURL(new NativeBlob([html], { type: 'text/html' })));
+      })
+      .catch(function (err) {
+        rpRecord('navigate', (err && err.message) || String(err));
+        console.error('[redproxy] cloaked navigation failed', err);
+      });
+  }
+
+  /* Keep native navigations inside the blob tab.
+   * -------------------------------------------
+   * Scramjet routes JS-driven navigation through client.url, which the
+   * virtual identity above already redirects into navigateCloaked. What it
+   * cannot catch is a navigation the BROWSER performs by itself: a link
+   * click, or a form submission. Those go straight to the rewritten
+   * absolute URL, which leaves the blob and puts the whole proxied address
+   * in the address bar -- which is what happened signing in to GeForce
+   * NOW, where the login form is a POST.
+   *
+   * Both are intercepted here and re-fetched into a fresh blob instead.
+   * Deliberately conservative: modified clicks, non-http schemes,
+   * downloads and anything already handled by the page are left alone, so
+   * this never takes over a navigation it does not understand. */
+  function interceptNativeNavigation() {
+    if (!IS_BLOB) return;
+
+    document.addEventListener('click', function (ev) {
+      if (ev.defaultPrevented || ev.button !== 0) return;
+      if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;  // open-in-new-tab etc.
+
+      var el = ev.target;
+      while (el && el.nodeType === 1 && el.tagName !== 'A') el = el.parentNode;
+      if (!el || el.tagName !== 'A') return;
+      if (el.hasAttribute('download')) return;
+
+      var href;
+      // el.href is hooked by scramjet and reports the TARGET url, resolved.
+      try { href = String(el.href || ''); } catch (e) { return; }
+      if (!href || href.indexOf('http') !== 0) return;   // mailto:, javascript:, #fragments
+
+      ev.preventDefault();
+      var target = el.getAttribute('target');
+      if (target && target !== '_self') {
+        // Let a new tab stay cloaked too, rather than handing it the URL.
+        openCloakedTab(href);
+      } else {
+        navigateCloaked(href);
+      }
+    }, true);
+
+    document.addEventListener('submit', function (ev) {
+      if (ev.defaultPrevented) return;
+      var form = ev.target;
+      if (!form || form.tagName !== 'FORM') return;
+
+      var action;
+      try { action = String(form.action || ''); } catch (e) { return; }
+      if (!action || action.indexOf('http') !== 0) return;
+
+      var method = (form.method || 'GET').toUpperCase();
+      var data;
+      try { data = new FormData(form); } catch (e) { return; }
+
+      ev.preventDefault();
+      if (method === 'GET') {
+        var q = new URLSearchParams(data).toString();
+        navigateCloaked(action + (q ? (action.indexOf('?') === -1 ? '?' : '&') + q : ''));
+      } else {
+        // Let fetch set the multipart/urlencoded content-type itself.
+        navigateCloaked(action, { method: method, body: data });
+      }
+    }, true);
+  }
+
+  /* Catch-all: if a proxied page ends up at a real URL, put it back in a
+   * blob.
+   * ------------------------------------------------------------------
+   * The interceptors above cover link clicks and form submissions, and
+   * scramjet routes JS navigation through client.url. But a page has many
+   * other ways to move -- a server redirect the browser follows, a
+   * framework's own router, window.open, a meta refresh -- and missing any
+   * one of them puts the full proxied address in the address bar. Signing
+   * in to GeForce NOW did exactly that.
+   *
+   * Rather than trying to enumerate every path, fix it where it can be
+   * detected with certainty: this script only ever runs inside a proxied
+   * page, so if such a page finds itself at an http(s) address, the
+   * cloak has been broken. Re-fetch and replace with a blob.
+   *
+   * Cannot loop: the replacement document is blob:, which returns
+   * immediately, and a failed fetch simply leaves the page where it is.
+   * Top-level only -- a proxied page's own subframes are not the tab's
+   * address and must be left alone. Uses replace() so the exposed URL does
+   * not stay in history. */
+  function reblobIfExposed() {
+    if (IS_BLOB) return;                       // already cloaked
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+    try { if (window.top !== window.self) return; } catch (e) { return; }
+
+    var here;
+    try { here = String(location.href); } catch (e) { return; }
+    if (here.indexOf(PREFIX) !== 0) return;    // not one of our proxied URLs
+
+    nativeFetch(here, {
+      credentials: 'include',
+      headers: { 'X-RP-Dest': 'document' },
+      redirect: 'follow',
     })
       .then(function (res) { return res.text(); })
       .then(function (html) {
         nativeReplace(nativeCreateObjectURL(new NativeBlob([html], { type: 'text/html' })));
       })
       .catch(function (err) {
-        console.error('[redproxy] cloaked navigation failed', err);
+        rpRecord('reblob', (err && err.message) || String(err));
+      });
+  }
+
+  /** Open another proxied page in a NEW tab, still cloaked. */
+  function openCloakedTab(targetHref) {
+    var tab = window.open('', '_blank');
+    if (!tab) return;
+    nativeFetch(PREFIX + codecEncode(targetHref), {
+      credentials: 'include',
+      headers: { 'X-RP-Dest': 'document' },
+      redirect: 'follow',
+    })
+      .then(function (res) { return res.text(); })
+      .then(function (html) {
+        tab.location.replace(nativeCreateObjectURL(new NativeBlob([html], { type: 'text/html' })));
+      })
+      .catch(function (err) {
+        rpRecord('open', (err && err.message) || String(err));
+        try { tab.close(); } catch (e) { /* already gone */ }
       });
   }
 
@@ -367,6 +502,8 @@
   try {
     makeHistorySafeForBlob();   // must run before the client captures natives
     bootClient(globalThis);
+    interceptNativeNavigation(); // after hooking: needs scramjet's href getters
+    reblobIfExposed();           // last line of defence for the cloak
   } catch (err) {
     rpRecord('boot', (err && err.message) || String(err));
     console.error('[redproxy] client failed to hook', err);
