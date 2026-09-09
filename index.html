@@ -1515,7 +1515,7 @@ footer {
          also in script.js) instead of switching to an in-page section.
          The href is a plain fallback for right-click-open-in-new-tab /
          accessibility. -->
-    <a href="/redproxy/frame.html" id="navRedProxy" class="nav-hidden">🕵️ Red Proxy</a>
+    <a href="#redproxy" id="navRedProxy" class="nav-hidden">🕵️ Red Proxy</a>
   </nav>
 
   <!-- Settings (theme slide-out) trigger -->
@@ -2670,35 +2670,39 @@ footer {
   // template below), no icon shown, same look as before this feature.
   const ICON_BASE_URL = 'https://assets.redportal.dpdns.org/assets/icons/';
 
+  const escHtml = s => String(s).replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  /* Paint a list we already have. Split out of renderGameGrid so the
+     server-inlined data can go straight to the DOM without a fetch. */
+  function paintGrid(containerId, list, emptyMessage) {
+    const $grid = document.getElementById(containerId);
+    if (!$grid) return false;
+    if (!Array.isArray(list) || !list.length) {
+      if (emptyMessage && $grid.dataset.lastRendered !== '__empty__') {
+        $grid.dataset.lastRendered = '__empty__';
+        $grid.innerHTML = emptyMessage;
+      }
+      return false;
+    }
+    const html = list.map(g => `
+        <a class="game-btn" href="${escHtml(g.href)}" target="_blank" rel="noopener noreferrer">${g.icon ? `<img class="game-icon" src="${ICON_BASE_URL}${escHtml(encodeURIComponent(g.icon))}.png" alt="" loading="lazy" onerror="this.remove()">` : ''}<span>${escHtml(g.name)}</span></a>`).join('');
+    if (html === $grid.dataset.lastRendered) return true; // nothing changed -- skip the DOM churn
+    $grid.dataset.lastRendered = html;
+    $grid.innerHTML = html;
+    rebuildSearchCache(); // grid DOM nodes just got replaced -- old cache is stale
+    return true;
+  }
+
   function renderGameGrid(containerId, apiPath, emptyMessage) {
     const $grid = document.getElementById(containerId);
     if (!$grid) return;
     if ($grid.dataset.fetching === '1') return; // previous request for this grid hasn't finished -- don't stack another on top
     $grid.dataset.fetching = '1';
-    const escHtml = s => String(s).replace(/[&<>"]/g, c =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
     fetch(apiPath)
       .then(r => (r.ok ? r.json() : []))
-      .then(list => {
-        if (!Array.isArray(list) || !list.length) {
-          // A grid with static fallback content (Games/Testing) should never
-          // get blanked out by a genuinely-empty API response -- only grids
-          // that opt in with an emptyMessage (nothing to fall back to,
-          // e.g. Emulation before any ROMs exist) show one here.
-          if (emptyMessage && $grid.dataset.lastRendered !== '__empty__') {
-            $grid.dataset.lastRendered = '__empty__';
-            $grid.innerHTML = emptyMessage;
-          }
-          return;
-        }
-        const html = list.map(g => `
-        <a class="game-btn" href="${escHtml(g.href)}" target="_blank" rel="noopener noreferrer">${g.icon ? `<img class="game-icon" src="${ICON_BASE_URL}${escHtml(encodeURIComponent(g.icon))}.png" alt="" loading="lazy" onerror="this.remove()">` : ''}<span>${escHtml(g.name)}</span></a>`).join('');
-        if (html === $grid.dataset.lastRendered) return; // nothing changed -- skip the DOM churn
-        $grid.dataset.lastRendered = html;
-        $grid.innerHTML = html;
-        rebuildSearchCache(); // grid DOM nodes just got replaced -- old cache is stale
-      })
+      .then(list => { paintGrid(containerId, list, emptyMessage); })
       .catch(() => {
         /* The grids used to ship with a hardcoded copy of the list to fall
            back on. That copy went stale -- 23 of its 64 links pointed at
@@ -2735,12 +2739,49 @@ footer {
     '(e.g. <code>Emulation/SNES/</code>) and reload — it will appear here ' +
     'automatically and launch in the built-in emulator.</p>';
 
+  const GRID_TARGETS = [
+    ['games',   'gamesGrid',     GAMES_EMPTY_MSG],
+    ['testing', 'preLaunchGrid', TESTING_EMPTY_MSG],
+    ['apps',    'appsGrid',      APPS_EMPTY_MSG],
+  ];
+
+  /* The three bucket-backed grids come from ONE request now. They are all
+     built from the same manifest index on the server, so asking for them
+     together costs it essentially nothing and saves the page two round
+     trips. Emulation stays separate: it is not manifest-backed, and
+     folding it in would slow the other three to its speed. */
+  let gridsFetching = false;
   function refreshAllGrids() {
-    renderGameGrid('gamesGrid', '/api/games', GAMES_EMPTY_MSG);
-    renderGameGrid('appsGrid', '/api/apps', APPS_EMPTY_MSG);
-    renderGameGrid('preLaunchGrid', '/api/testing', TESTING_EMPTY_MSG);
     renderGameGrid('emulationGrid', '/api/emulation', EMULATION_EMPTY_MSG);
+    if (gridsFetching) return;
+    gridsFetching = true;
+    fetch('/api/grids')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (!data) return;
+        for (const [key, id, empty] of GRID_TARGETS) paintGrid(id, data[key], empty);
+      })
+      .catch(() => {
+        for (const [, id] of GRID_TARGETS) {
+          const $g = document.getElementById(id);
+          if ($g && !$g.dataset.lastRendered) $g.innerHTML = LOAD_FAILED_MSG;
+        }
+      })
+      .finally(() => { gridsFetching = false; });
   }
+
+  /* First paint with zero requests. The server inlines whatever it already
+     had cached (see serveIndexWithGrids), so the grids are populated
+     before any network call happens. A refresh still runs straight after,
+     to pick up anything that changed since that snapshot. */
+  if (window.__RP_GRIDS) {
+    for (const [key, id, empty] of GRID_TARGETS) paintGrid(id, window.__RP_GRIDS[key], empty);
+  }
+  /* Always refresh, even when the grids were inlined. The inlined copy is
+     the last listing the server had, which is what makes first paint
+     instant, but it carries no freshness guarantee -- so one call right
+     after paint reconciles it. paintGrid skips the DOM work entirely when
+     the result is identical, which it usually is. */
   refreshAllGrids();
 
   // Auto-refresh: poll the R2-backed listings periodically so a game that

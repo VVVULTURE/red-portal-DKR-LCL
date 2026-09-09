@@ -269,7 +269,7 @@ let manifestCache = null;   // { data, expires }
 let manifestInFlight = null; // shared promise, so a burst of requests fetches once
 const MANIFEST_CACHE_TTL_MS = parseInt(process.env.MANIFEST_CACHE_TTL_MS || String(30 * 1000), 10);
 
-function fetchManifest() {
+function fetchManifest(etag) {
   return new Promise((resolve, reject) => {
     if (!R2_PUBLIC_DOMAIN) return reject(new Error('R2_PUBLIC_DOMAIN not set'));
     const req = https.get(
@@ -279,6 +279,13 @@ function fetchManifest() {
         agent: httpsAgent,
         headers: {
           'user-agent': 'red-portal-server',
+          /* Revalidate instead of re-downloading. The manifest only
+             changes when a sync runs, which is rare, but the cache TTL
+             expires every half minute -- so nearly every refetch was
+             pulling 875 KB to discover nothing had changed. R2 serves an
+             ETag, so a 304 answers the same question in a couple of
+             hundred bytes. */
+          ...(etag ? { 'if-none-match': etag } : {}),
           /* The manifest is ~17 MB of highly repetitive JSON -- every value
              is the same URL prefix plus the key. Asking for it compressed
              turns that into a couple of MB on the wire, which matters
@@ -287,10 +294,15 @@ function fetchManifest() {
         },
       },
       res => {
+        if (res.statusCode === 304) {
+          res.resume();
+          return resolve({ notModified: true });
+        }
         if (res.statusCode !== 200) {
           res.resume();
           return reject(new Error(`manifest.json returned HTTP ${res.statusCode}`));
         }
+        const freshEtag = res.headers.etag || null;
         const enc = String(res.headers['content-encoding'] || '').toLowerCase();
         let stream = res;
         try {
@@ -306,7 +318,7 @@ function fetchManifest() {
         stream.on('error', e => reject(new Error(`manifest.json stream failed: ${e.message}`)));
         stream.on('end', () => {
           try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')));
+            resolve({ data: JSON.parse(Buffer.concat(chunks).toString('utf-8')), etag: freshEtag });
           } catch (e) {
             reject(new Error(`manifest.json is not valid JSON: ${e.message}`));
           }
@@ -325,12 +337,22 @@ async function getManifest() {
   const now = Date.now();
   if (manifestCache && manifestCache.expires > now) return manifestCache.data;
   /* Without this, a burst of requests arriving after the TTL lapses each
-     starts its own multi-megabyte download and parse. Share one. */
+     starts its own download and parse. Share one. */
   if (manifestInFlight) return manifestInFlight;
-  manifestInFlight = fetchManifest()
-    .then(data => {
-      manifestCache = { data, expires: Date.now() + MANIFEST_CACHE_TTL_MS };
-      return data;
+  const knownEtag = manifestCache ? manifestCache.etag : null;
+  manifestInFlight = fetchManifest(knownEtag)
+    .then(result => {
+      if (result.notModified && manifestCache) {
+        // Same bytes we already parsed -- just extend the lease.
+        manifestCache.expires = Date.now() + MANIFEST_CACHE_TTL_MS;
+        return manifestCache.data;
+      }
+      manifestCache = {
+        data: result.data,
+        etag: result.etag,
+        expires: Date.now() + MANIFEST_CACHE_TTL_MS,
+      };
+      return manifestCache.data;
     })
     .finally(() => { manifestInFlight = null; });
   return manifestInFlight;
@@ -1241,16 +1263,73 @@ async function handleMovies(req, res, fresh) {
    folder into Games/, Testing/ or Apps/ and reloading Red Portal is all
    it takes -- no index.html edits, no redeploy. See listR2GameFolders()
    for how the entry-point index.html is located inside each folder.  */
+/* The three manifest-backed grids share one index and one cache, so
+   building all of them costs barely more than building one. Kept
+   separate from the emulation listing, which is not manifest-backed and
+   would drag the combined response down to its own speed. */
+const GRID_PREFIXES = { games: 'Games/', testing: 'Testing/', apps: 'Apps/' };
+
+/* Hrefs are absolute, so a list is only reusable once the requesting
+   origin is known -- hence raw (relative) storage, absolute on the way
+   out. */
+function toAbsolute(origin, list) {
+  // icon: the folder name IS the stable per-game key already (exact match
+  // to assets/icons/<folder>.png) -- see the icon-loading comment in
+  // index.html for how a missing file degrades gracefully.
+  return list.map(g => ({ ...g, icon: g.folder, href: `${origin}/${g.href}` }));
+}
+
+function rawGrid(topPrefix, fresh) {
+  return fresh
+    ? listR2GameFolders(topPrefix)
+    : cachedList(topPrefix, CACHE_TTL_MS_GAMES, () => listR2GameFolders(topPrefix));
+}
+
+async function buildGrid(origin, topPrefix, fresh) {
+  return toAbsolute(origin, await rawGrid(topPrefix, fresh));
+}
+
+/* Every grid the page needs on load, in one response. The page used to
+   make three separate calls for these and wait on all of them. */
+async function buildAllGrids(origin, fresh) {
+  const raw = {};
+  await Promise.all(Object.entries(GRID_PREFIXES).map(async ([key, prefix]) => {
+    try {
+      raw[key] = await rawGrid(prefix, fresh);
+    } catch (e) {
+      console.error(`  ✗  /api listing error for ${prefix}:`, e.message);
+      raw[key] = [];
+    }
+  }));
+  if (Object.values(raw).some(l => l.length)) lastGoodGrids = raw;
+  const out = {};
+  for (const key of Object.keys(raw)) out[key] = toAbsolute(origin, raw[key]);
+  return out;
+}
+
+/* The last listing that worked, kept indefinitely and deliberately NOT
+   tied to the cache TTL.
+
+   Inlining was originally read straight out of listCache, which expires
+   every 15 seconds -- so in practice a visitor almost never arrived
+   during a warm window and the inlining hardly ever fired. What the HTML
+   needs is not a fresh list, it is SOME list, instantly, so the grids are
+   populated at first paint. The client refreshes right afterwards and
+   corrects anything that moved, which is the only thing the TTL was ever
+   protecting. */
+let lastGoodGrids = null; // raw (relative-href) entries, per grid key
+
+function gridsFromCacheOnly(origin) {
+  if (!lastGoodGrids) return null;
+  const out = {};
+  for (const key of Object.keys(GRID_PREFIXES)) {
+    out[key] = toAbsolute(origin, lastGoodGrids[key] || []);
+  }
+  return out;
+}
 async function handleGameList(req, res, topPrefix, fresh) {
   try {
-    const origin = getRequestOrigin(req);
-    const games = fresh
-      ? await listR2GameFolders(topPrefix)
-      : await cachedList(topPrefix, CACHE_TTL_MS_GAMES, () => listR2GameFolders(topPrefix));
-    // icon: the folder name IS the stable per-game key already (exact match
-    // to assets/icons/<folder>.png) -- see the icon-loading comment in
-    // index.html for how a missing file degrades gracefully.
-    const absolute = games.map(g => ({ ...g, icon: g.folder, href: `${origin}/${g.href}` })); // relative -> absolute
+    const absolute = await buildGrid(getRequestOrigin(req), topPrefix, fresh);
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
     res.end(JSON.stringify(absolute));
   } catch (e) {
@@ -1260,6 +1339,67 @@ async function handleGameList(req, res, topPrefix, fresh) {
   }
 }
 
+let indexHtmlCache = null; // { mtimeMs, size, html }
+
+function readIndexHtml() {
+  const file = path.join(STATIC, 'index.html');
+  const st = fs.statSync(file);
+  if (indexHtmlCache && indexHtmlCache.mtimeMs === st.mtimeMs && indexHtmlCache.size === st.size) {
+    return indexHtmlCache.html;
+  }
+  const html = fs.readFileSync(file, 'utf8');
+  indexHtmlCache = { mtimeMs: st.mtimeMs, size: st.size, html };
+  return html;
+}
+
+function serveIndexWithGrids(req, res) {
+  let html;
+  try {
+    html = readIndexHtml();
+  } catch (e) {
+    res.writeHead(404, { 'content-type': 'text/plain', ...CORS_HEADERS });
+    return res.end('Not found');
+  }
+
+  let grids = null;
+  try {
+    grids = gridsFromCacheOnly(getRequestOrigin(req));
+  } catch (e) { /* never let this stop the page rendering */ }
+
+  if (grids) {
+    // JSON.stringify can emit </script> and U+2028/9; neutralise both.
+    const payload = JSON.stringify(grids)
+      .replace(/</g, '\\u003c')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
+    const tag = `<script>window.__RP_GRIDS=${payload};</script>`;
+    const at = html.indexOf('</head>');
+    html = at === -1 ? tag + html : html.slice(0, at) + tag + html.slice(at);
+  } else {
+    // Cold cache: warm it in the background so the NEXT load is inlined.
+    buildAllGrids(getRequestOrigin(req), false).catch(() => {});
+  }
+
+  const body = Buffer.from(html, 'utf8');
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-cache',
+    'content-length': body.length,
+    ...CORS_HEADERS,
+  });
+  res.end(body);
+}
+async function handleAllGrids(req, res, fresh) {
+  try {
+    const grids = await buildAllGrids(getRequestOrigin(req), fresh);
+    res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+    res.end(JSON.stringify(grids));
+  } catch (e) {
+    console.error('  ✗  /api/grids error:', e.message);
+    res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+    res.end(JSON.stringify({ games: [], testing: [], apps: [] }));
+  }
+}
 /* ── GET /api/emulation — auto-populate the Emulation grid from ROM files
    sitting under Emulation/<Console>/ on R2. Each entry's href points at the
    generic EmulatorJS player (assets/emulator/player.html) with the ROM's
@@ -1323,7 +1463,7 @@ async function handleR2Status(req, res) {
 
   const manifestStarted = Date.now();
   try {
-    const manifest = await fetchManifest(); // bypass cache -- always a fresh check here
+    const manifest = (await fetchManifest()).data; // bypass cache -- always a fresh check here
     const keys = Object.keys(manifest);
     result['manifest.json'] = {
       ok: true,
@@ -1407,6 +1547,12 @@ const server = http.createServer((req, res) => {
 
   /* ── /api/games, /api/testing, /api/apps — auto-populated grid data ──
      ?fresh=1 bypasses the in-memory cache for this one request. ── */
+  /* All three manifest-backed grids at once -- one round trip instead of
+     three. The individual routes below stay for anything already pointing
+     at them. */
+  if (pathname === '/api/grids') {
+    return handleAllGrids(req, res, parsed.query.fresh === '1');
+  }
   if (pathname === '/api/games') {
     return handleGameList(req, res, 'Games/', parsed.query.fresh === '1');
   }
@@ -1429,10 +1575,9 @@ const server = http.createServer((req, res) => {
      path. ── */
   if (pathname === '/scram/scramjet-utils.js') {
     // scramjet-utils lives in a SEPARATE npm package/directory from the
-    // core scramjet bundle below, but the client (controller-init.js,
-    // matching MercuryWorkshop's own reference bootstrap's path layout)
-    // expects it under the same /scram/ prefix -- special-cased ahead of
-    // the generic /scram/ handler for that one file.
+    // core scramjet bundle below, but is expected under the same /scram/
+    // prefix (MercuryWorkshop's own reference bootstrap lays it out that
+    // way) -- special-cased ahead of the generic /scram/ handler.
     return serveScramjetAsset(req, res, scramjetUtilsPath, 'scramjet-utils.js');
   }
   if (pathname.startsWith('/scram/')) {
@@ -1494,151 +1639,17 @@ const server = http.createServer((req, res) => {
     res.writeHead(404, { 'content-type': 'text/plain', ...CORS_HEADERS });
     return res.end('This request needed to go through the Red Proxy service worker, but reached the server directly instead (the service worker doesn\'t control this browsing context) -- not proxyable from here.');
   }
-  /* ── Same idea as /~/sj/ above, for the EMBEDDED proxy ──
-     frame.js overrides config.prefix to "/redproxy/sj/" so that its
-     service worker's natural max scope ("/redproxy/", the directory its
-     own script is served from) already covers every proxied URL, without
-     needing root scope or a Service-Worker-Allowed header. A request
-     arriving here under that prefix means the same thing the /~/sj/ case
-     means: it escaped service worker control, and cannot be answered from
-     the raw HTTP server. Must be checked BEFORE the generic /redproxy/
-     static branch below, which would otherwise try to read it off disk
-     and answer with a bare, unexplained "Not found". */
-  if (pathname.startsWith('/redproxy/sj/')) {
-    /* There is one recoverable way to end up here, and it is common enough
-       to be worth healing rather than reporting. The service worker keeps
-       the list of prefixes it should intercept in memory, so a browser
-       terminating it for being idle empties that list; the next proxied
-       navigation starts the worker again, but shouldRoute() runs before
-       the worker has been handed the prefixes back, so that one request
-       escapes to the network and arrives here. By the time this response
-       is parsed, the worker is running again and has been re-primed --
-       simply asking for the same URL a second time succeeds.
+  /* The /redproxy/ routes that used to live here are gone along with the
+     architecture they served. Red Proxy used to run as a service worker
+     inside an iframe: frame.html, frame.js and frame-sw.js were served
+     out of that directory under a /redproxy/sj/ prefix, chosen so the
+     worker’s natural scope already covered every proxied URL, plus a set
+     of cross-origin-isolation header exceptions to keep it working.
 
-       frame.js keeps the worker warm precisely so this stays rare, but a
-       worker can still be reclaimed under memory pressure or across a
-       sleep/resume, so retry a bounded number of times before giving up.
-       The counter lives in the fragment, which never reaches this server
-       and so cannot disturb the proxied URL's own query string.
-
-       Only for NAVIGATIONS. A subresource that escaped (the classic case
-       being a document.write()n about:blank iframe, which no service
-       worker can ever control) must keep getting the plain-text 404: a
-       <script> or stylesheet handed an HTML retry page would fail in a
-       far more confusing way than a clean network error. */
-    const dest = req.headers['sec-fetch-dest'];
-    const isNavigation = dest === 'document' || dest === 'iframe' ||
-                         (!dest && req.headers['sec-fetch-mode'] === 'navigate');
-
-    if (!isNavigation) {
-      res.writeHead(404, { 'content-type': 'text/plain', ...CORS_HEADERS });
-      return res.end('This request needed to go through the Red Proxy service worker, but reached the server directly instead (the service worker doesn\'t control this browsing context) -- not proxyable from here.');
-    }
-
-    res.writeHead(503, {
-      'content-type': 'text/html; charset=utf-8',
-      'cache-control': 'no-store',
-      ...CORS_HEADERS,
-    });
-    return res.end(`<!doctype html>
-<meta charset="utf-8">
-<title>Reconnecting…</title>
-<style>
-  html,body{height:100%;margin:0;background:#0a0a0a;color:#ffdddd;
-    font-family:'Rajdhani','Segoe UI',system-ui,sans-serif}
-  div{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-    text-align:center;padding:2rem;font-size:.95rem;line-height:1.5}
-  b{color:#ff6060;font-weight:600}
-</style>
-<div id="m">Reconnecting to the Red Proxy&hellip;</div>
-<script>
-(function () {
-  var MAX = 2;
-  var m = /^#rp-retry-(\\d+)$/.exec(location.hash);
-  var n = m ? parseInt(m[1], 10) : 0;
-  if (n < MAX) {
-    setTimeout(function () {
-      location.hash = 'rp-retry-' + (n + 1);
-      location.reload();
-    }, 700);
-    return;
-  }
-  document.getElementById('m').innerHTML =
-    '<span><b>The Red Proxy service worker did not pick this up.</b><br><br>' +
-    'This page was requested straight from the server instead of going through the ' +
-    'proxy, which cannot work. Reload the Red Proxy tab to start it again.</span>';
-})();
-</script>`);
-  }
-  if (pathname === '/redproxy' || pathname === '/redproxy/' || pathname.startsWith('/redproxy/')) {
-    const rel = (pathname === '/redproxy' || pathname === '/redproxy/')
-      ? 'index.html'
-      : pathname.slice('/redproxy/'.length) || 'index.html';
-    const isSw = rel === 'sw.js';
-    // sw.js needs to control the WHOLE site (scope "/"), not just its own
-    // "/redproxy/" directory -- Scramjet's codec rewrites proxied URLs to
-    // live at the site root, not under this folder. A script's own
-    // directory is the max scope a browser allows by default, so this
-    // header is required to explicitly widen it. See controller-init.js.
-    //
-    // frame-sw.js needs the same widening, for a different reason than
-    // sw.js does. Its proxied URLs sit under "/redproxy/sj/" and would fit
-    // its own directory's default scope perfectly well -- but the
-    // Controller now runs inside Red Portal's own document at "/", and the
-    // worker reaches its page via clients.matchAll(), which returns ONLY
-    // clients the worker CONTROLS. Without root scope, index.html would be
-    // an uncontrolled client and would silently miss both the cookie-sync
-    // broadcasts (breaking logins on proxied sites) and the revive message
-    // a restarted worker sends to get its prefixes back. See the SW_SCOPE
-    // comment in frame.js.
-    //
-    // Crucially this is NOT a return of the old site-wide hazard:
-    // frame-sw.js is listed in NON_ISOLATED below, so it carries no
-    // COEP/COOP for the worker to inherit and impose on the whole origin,
-    // and its fetch handler returns without ever calling respondWith() for
-    // anything shouldRoute() does not claim.
-    // frame.js must revalidate on every load. It is served from the same
-    // directory as the engine bundles, so it would otherwise inherit their
-    // "public, max-age=3600" -- and it is not a cacheable third-party
-    // bundle, it is the client half of a contract with this server (the
-    // service worker path, its scope, and config.prefix all have to agree).
-    // Letting a browser run an hour-old copy against a freshly deployed
-    // server is a real failure mode, not a theoretical one: it is what made
-    // the first deploy of the staged boot reporting appear to do nothing.
-    // frame-sw.js needs no equivalent -- register() passes
-    // updateViaCache:'none', which bypasses the HTTP cache for the worker
-    // script -- and frame.html already gets no-cache for being .html.
-    const isFrameSw = rel === 'frame-sw.js';
-    const extra = (isSw || isFrameSw)
-      ? { 'service-worker-allowed': '/' }
-      : (rel === 'frame.js' ? { 'cache-control': 'no-cache' } : undefined);
-    // sw.js must NOT get SCRAMJET_HEADERS (isolate: false) -- a service
-    // worker inherits COEP/COOP from its own script response, and at root
-    // scope that would cross-origin-isolate the ENTIRE SITE for as long as
-    // the worker stays registered. That in turn requires every resource
-    // the worker's own fetch() touches (including a plain passthrough
-    // fetch for, say, a game icon on assets.redportal.dpdns.org) to send a
-    // matching Cross-Origin-Resource-Policy header -- which R2 doesn't --
-    // so the browser blocks it. This is what was breaking every game icon
-    // and other R2-hosted asset site-wide after merely opening the Red
-    // Proxy tab once: confirmed by reproducing it locally (bisecting the
-    // proxy's init sequence step by step, isolating it to the moment the
-    // service worker registers) and by curling the header this file used
-    // to be served with.
-    //
-    // The frame.* trio is excluded from SCRAMJET_HEADERS for a different
-    // reason. frame.html is embedded by Red Portal's Red Proxy tab, which
-    // may itself be a blob: document belonging to a foreign origin. Cross-
-    // origin isolation is inherited from the top-level document, so it can
-    // never be achieved there no matter what this server sends -- and it
-    // buys nothing anyway (the Controller only consults crossOriginIsolated
-    // to decide whether to copy COEP/COOP onto proxied responses, and
-    // defaults it to false). Sending require-corp would therefore add real
-    // constraints on every subresource for zero benefit. frame-sw.js is
-    // excluded for the ordinary service-worker reason above.
-    const NON_ISOLATED = ['sw.js', 'frame-sw.js', 'frame.html', 'frame.js'];
-    return serveScramjetAsset(req, res, path.join(STATIC, 'redproxy'), rel, extra, !NON_ISOLATED.includes(rel));
-  }
+     None of that exists now. Proxying happens server-side in ssr.mjs, the
+     rewritten page is handed to the tab as a blob, and the only client
+     asset left is /rp-client.js. No service worker, no iframe, and no
+     isolation exceptions to maintain. */
 
   /* ── Games/Testing → redirect straight to R2 ──
      Placed before static file serving so it takes priority regardless
@@ -1653,6 +1664,21 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
+  /* ── Inline the grids into the HTML ──────────────────────────────
+     The page used to paint "Loading games…", then fetch three listings,
+     then fill in. Everything needed is already sitting in this process,
+     so put it in the document and the grids are there on first paint --
+     no round trip at all.
+
+     Two rules make this safe. It only ever uses what is ALREADY cached
+     in memory: a cold cache means the page ships without the data and
+     falls back to fetching, exactly as before, rather than the HTML
+     waiting on R2. And the HTML is served no-cache (Cloudflare reports
+     it DYNAMIC), so one visitor cannot be handed another visitor's
+     inlined snapshot. */
+  if (pathname === '/' || pathname === '/index.html') {
+    return serveIndexWithGrids(req, res);
+  }
   /* ── Static file serving ── */
   // Decode %-escapes so paths with spaces/unicode (e.g. movie filenames like
   // "Movies/My Movie.mp4") resolve to the real file instead of 404-ing.
@@ -1747,6 +1773,20 @@ server.listen(PORT, '0.0.0.0', () => {
   }
   console.log('');
   console.log('  Press Ctrl+C to stop.');
+
+  /* Build the grid snapshot now rather than on the first visitor.
+     Without it the first page load after a deploy is the one that pays
+     for the listing and ships without inlined grids -- avoidable, since
+     nothing is waiting on this. Failure is fine: the request path builds
+     it on demand anyway. */
+  if (R2_PUBLIC_DOMAIN) {
+    buildAllGrids(`http://localhost:${PORT}`, false)
+      .then(g => {
+        const n = Object.values(g).reduce((a, l) => a + l.length, 0);
+        if (n) console.log(`  ✓   Grid snapshot warmed: ${n} entries ready to inline.`);
+      })
+      .catch(e => console.warn(`  ⚠  Could not warm the grid snapshot (${e.message}); it will build on first use.`));
+  }
   console.log('');
 });
 
