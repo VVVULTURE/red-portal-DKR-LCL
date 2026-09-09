@@ -413,6 +413,28 @@ def main():
             skipped.extend(prune_failures)
             print("  Pruning took " + format(time.time() - started, ".1f") + "s")
 
+            # The manifest went up BEFORE the delete, describing the bucket as
+            # it was -- every game just pruned still listed in it. Leaving it
+            # that way puts the site straight back into the state this whole
+            # exercise was about: entries that 404. Rewrite it to what is
+            # actually left and send it again.
+            if pruned:
+                manifest = {k: "https://" + public_domain + "/" + k
+                            for k in sorted(set(local_files) | keep)}
+                manifest[MANIFEST_FILE] = "https://" + public_domain + "/" + MANIFEST_FILE
+                with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
+                    json.dump(manifest, f, indent=2)
+                try:
+                    s3.upload_file(MANIFEST_FILE, bucket, MANIFEST_FILE,
+                                   ExtraArgs={"ContentType": "application/json"})
+                    print("  Rewrote " + MANIFEST_FILE + " for the pruned bucket ("
+                          + str(len(manifest)) + " entries).")
+                except Exception as e:
+                    skipped.append(MANIFEST_FILE + " (post-prune): upload failed (" + str(e) + ")")
+                    print("  !  Could not re-upload " + MANIFEST_FILE + " after pruning ("
+                          + str(e) + ").")
+                    print("  !  The site will list games that were just deleted. Re-run the sync.")
+
     with open("skipped.log", "w", encoding="utf-8") as f:
         f.write("\n".join(skipped))
 
