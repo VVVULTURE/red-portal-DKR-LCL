@@ -12,6 +12,13 @@ Usage:
     Re-run any time after editing files locally -- only changed/new files
     get re-uploaded.
 
+Fixing files that are missing on R2 even though the sync thinks it sent them:
+    python sync_to_r2.py <root> --repair
+
+    Lists the bucket and re-uploads any local file that is not actually in
+    it. Uploads only -- it never deletes. Worth running whenever a game is
+    on the site but 404s.
+
 Mirroring (deleting remote files that no longer exist locally):
     python sync_to_r2.py <root> --prune            # DRY RUN: writes prune-plan.txt
     python sync_to_r2.py <root> --prune --yes      # actually delete
@@ -196,6 +203,8 @@ def main():
                         help="Refuse to delete more than this many objects (default 500)")
     parser.add_argument("--verify-hash", action="store_true",
                         help="Hash every file rather than trusting size+mtime")
+    parser.add_argument("--repair", action="store_true",
+                        help="List the bucket and re-upload any local file that is missing from it")
     args = parser.parse_args()
 
     root = args.root
@@ -224,17 +233,37 @@ def main():
     print("Found " + str(len(local_files)) + " local files (excluding "
           + ", ".join(sorted(EXCLUDE_DIRS)) + ").")
 
+    # One bucket listing serves both --repair and --prune.
+    #
+    # --repair exists because .sync_state.json is a record of what this
+    # machine BELIEVES it uploaded, and that is not the same as what the
+    # bucket holds. Anything that goes missing remotely -- a half-finished
+    # upload, an earlier prune, a manual delete -- stays missing forever,
+    # because the state says "already uploaded" and the file has not changed
+    # since. Found on the live bucket: Testing/Polytrack had all 149 files
+    # recorded as uploaded and listed in the manifest, and every one of them
+    # 404s. Nothing short of comparing against the bucket finds that.
+    remote = None
+    if args.repair or args.prune:
+        print("Listing remote objects (this is a full bucket listing)...")
+        remote = list_bucket_keys(s3, bucket)
+        print("Found " + str(len(remote)) + " remote objects.")
+
     state = load_state()
     manifest = {}
     skipped = []
     uploaded = 0
     unchanged = 0
+    repaired = 0
 
     for rel, (full, size, mtime) in local_files.items():
         r2_key = rel  # path-based: R2 key mirrors local relative path exactly
         manifest[rel] = "https://" + public_domain + "/" + r2_key
 
         upload, digest = needs_upload(state.get(rel), size, mtime, full, args.verify_hash)
+        if not upload and remote is not None and r2_key not in remote:
+            upload = True
+            repaired += 1
         if not upload:
             unchanged += 1
             # Refresh the recorded mtime so an unchanged file is not re-hashed
@@ -291,8 +320,6 @@ def main():
     # -- prune --------------------------------------------------------
     pruned = 0
     if args.prune:
-        print("Listing remote objects (this is a full bucket listing)...")
-        remote = list_bucket_keys(s3, bucket)
         keep = set(local_files) | {MANIFEST_FILE}
         stale = sorted(remote - keep)
 
@@ -328,6 +355,8 @@ def main():
     print("")
     print("Done.")
     print("  Uploaded (new/changed):   " + str(uploaded))
+    if remote is not None:
+        print("  Re-uploaded (missing on R2 but recorded as uploaded): " + str(repaired))
     print("  Unchanged (skipped):      " + str(unchanged))
     print("  Pruned (deleted from R2): " + str(pruned))
     print("  Failures: " + str(len(skipped)) + " (see skipped.log)")
