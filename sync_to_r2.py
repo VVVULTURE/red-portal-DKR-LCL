@@ -229,6 +229,8 @@ def main():
                         help="Hash every file rather than trusting size+mtime")
     parser.add_argument("--repair", action="store_true",
                         help="List the bucket and re-upload any local file that is missing from it")
+    parser.add_argument("--manifest-from-bucket", action="store_true",
+                        help="Build manifest.json from what is actually in the bucket, not just local files")
     args = parser.parse_args()
 
     root = args.root
@@ -268,7 +270,7 @@ def main():
     # recorded as uploaded and listed in the manifest, and every one of them
     # 404s. Nothing short of comparing against the bucket finds that.
     remote = None
-    if args.repair or args.prune:
+    if args.repair or args.prune or args.manifest_from_bucket:
         print("Listing remote objects (this is a full bucket listing)...")
         remote = list_bucket_keys(s3, bucket)
         print("Found " + str(len(remote)) + " remote objects.")
@@ -329,6 +331,24 @@ def main():
     # from R2 to build its game lists, so each sync's newly added games stayed
     # invisible until the run after that. Measured on the live bucket: the
     # manifest R2 was serving lacked 11 files of a game added that same day.
+    # The manifest describes what Red Portal can SERVE, and that is the bucket
+    # -- not this folder. They are not the same set: the bucket holds games
+    # that were uploaded from some other copy of the folder and are still
+    # perfectly playable, and a manifest built only from local files drops
+    # every one of them off the site. Measured here: 62 live games vanished
+    # from the listing the moment a correct local-only manifest went up.
+    if args.manifest_from_bucket and remote is not None:
+        added = 0
+        for key in remote:
+            if key in manifest or key == MANIFEST_FILE:
+                continue
+            parts = key.split("/")
+            if any(p in EXCLUDE_DIRS for p in parts) or is_excluded_file(parts[-1]):
+                continue
+            manifest[key] = "https://" + public_domain + "/" + key
+            added += 1
+        print("Manifest: added " + str(added) + " keys that are in the bucket but not in this folder.")
+
     manifest[MANIFEST_FILE] = "https://" + public_domain + "/" + MANIFEST_FILE
     with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
