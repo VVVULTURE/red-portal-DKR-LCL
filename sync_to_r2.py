@@ -12,12 +12,23 @@ Usage:
     Re-run any time after editing files locally -- only changed/new files
     get re-uploaded.
 
-Fixing files that are missing on R2 even though the sync thinks it sent them:
-    python sync_to_r2.py <root> --repair
+What a normal run does, and why it lists the bucket:
+    Every run lists the bucket first. That costs a couple of minutes on
+    ~127k objects and buys two things that cannot be had any other way:
 
-    Lists the bucket and re-uploads any local file that is not actually in
-    it. Uploads only -- it never deletes. Worth running whenever a game is
-    on the site but 404s.
+      * It re-uploads local files that are missing from R2 even though
+        .sync_state.json says they were sent. That record is what this
+        machine BELIEVES it uploaded, not what is there. 1108 files were in
+        that state when this was first run.
+
+      * It writes a manifest describing what the bucket can serve rather
+        than what this folder happens to hold. Those differ by tens of
+        thousands of objects, including whole playable games uploaded from
+        some other copy of the folder. A local-only manifest drops every
+        one of them off the site -- 62 games, measured.
+
+    --fast skips the listing. It is quicker and it will delist those games
+    until the next full run. It says so when you use it.
 
 Mirroring (deleting remote files that no longer exist locally):
     python sync_to_r2.py <root> --prune            # DRY RUN: writes prune-plan.txt
@@ -228,9 +239,10 @@ def main():
     parser.add_argument("--verify-hash", action="store_true",
                         help="Hash every file rather than trusting size+mtime")
     parser.add_argument("--repair", action="store_true",
-                        help="List the bucket and re-upload any local file that is missing from it")
-    parser.add_argument("--manifest-from-bucket", action="store_true",
-                        help="Build manifest.json from what is actually in the bucket, not just local files")
+                        help="Deprecated: repairing is what a normal run does now. Accepted so old commands keep working.")
+    parser.add_argument("--fast", action="store_true",
+                        help="Skip the bucket listing. Quicker, but cannot repair missing files and "
+                             "writes a manifest built only from local files -- see the warning it prints.")
     args = parser.parse_args()
 
     root = args.root
@@ -270,7 +282,7 @@ def main():
     # recorded as uploaded and listed in the manifest, and every one of them
     # 404s. Nothing short of comparing against the bucket finds that.
     remote = None
-    if args.repair or args.prune or args.manifest_from_bucket:
+    if not args.fast:
         print("Listing remote objects (this is a full bucket listing)...")
         remote = list_bucket_keys(s3, bucket)
         print("Found " + str(len(remote)) + " remote objects.")
@@ -337,7 +349,7 @@ def main():
     # perfectly playable, and a manifest built only from local files drops
     # every one of them off the site. Measured here: 62 live games vanished
     # from the listing the moment a correct local-only manifest went up.
-    if args.manifest_from_bucket and remote is not None:
+    if remote is not None:
         added = 0
         for key in remote:
             if key in manifest or key == MANIFEST_FILE:
@@ -348,6 +360,14 @@ def main():
             manifest[key] = "https://" + public_domain + "/" + key
             added += 1
         print("Manifest: added " + str(added) + " keys that are in the bucket but not in this folder.")
+
+    else:
+        print("")
+        print("  !  --fast: manifest built from local files only.")
+        print("  !  Any game that is in the bucket but not in this folder will")
+        print("  !  DISAPPEAR from the site until the next full run. That is 62")
+        print("  !  games as of the last check. Re-run without --fast to restore.")
+        print("")
 
     manifest[MANIFEST_FILE] = "https://" + public_domain + "/" + MANIFEST_FILE
     with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
