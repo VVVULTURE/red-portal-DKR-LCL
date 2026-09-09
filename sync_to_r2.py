@@ -58,7 +58,8 @@ EXCLUDE_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", "venv",
     ".idea", ".vscode", ".pytest_cache", ".mypy_cache", ".next", ".cache",
 }
-EXCLUDE_FILES = {STATE_FILE, PLAN_FILE, "skipped.log", ".DS_Store", "Thumbs.db"}
+KEEP_FILE = "prune-keep.txt"
+EXCLUDE_FILES = {STATE_FILE, PLAN_FILE, KEEP_FILE, "skipped.log", ".DS_Store", "Thumbs.db"}
 EXCLUDE_PREFIXES = (".env",)          # .env, .env.local, .env.production, ...
 EXCLUDE_SUFFIXES = (".pem", ".key", ".pfx", ".p12")
 
@@ -138,6 +139,29 @@ def needs_upload(cached, size, mtime, full, verify_hash):
     if cached.get("sha256") != digest:
         return True, digest
     return False, digest
+
+
+def load_keep_list():
+    """Keys --prune must never delete, one per line, from prune-keep.txt.
+
+    For objects that belong on R2 but have no local file to protect them.
+    The first case: Testing/How To Fish/index.html is what the site links to
+    and it loads, but the local folder only has the game's nested copy at
+    files/HowToFish/index.html, so mirroring would delete the working one.
+    Blank lines and #-comments are ignored.
+    """
+    keep = set()
+    if not os.path.exists(KEEP_FILE):
+        return keep
+    try:
+        with open(KEEP_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    keep.add(line)
+    except OSError as e:
+        print("  !  " + KEEP_FILE + " unreadable (" + str(e) + "); nothing protected from --prune.")
+    return keep
 
 
 def list_bucket_keys(s3, bucket):
@@ -320,7 +344,7 @@ def main():
     # -- prune --------------------------------------------------------
     pruned = 0
     if args.prune:
-        keep = set(local_files) | {MANIFEST_FILE}
+        keep = set(local_files) | {MANIFEST_FILE} | load_keep_list()
         stale = sorted(remote - keep)
 
         with open(PLAN_FILE, "w", encoding="utf-8") as f:

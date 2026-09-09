@@ -1,0 +1,8 @@
+# Keys --prune must never delete.
+#
+# One R2 key per line. These are objects that belong in the bucket but have
+# no local file to keep them alive, so a mirror would remove them.
+
+# The site links here and it loads. The local folder only carries this game's
+# nested copy (files/HowToFish/index.html), so nothing else protects it.
+Testing/How To Fish/index.html
