@@ -18,6 +18,7 @@ const http  = require('http');
 const https = require('https');
 const path  = require('path');
 const fs    = require('fs');
+const zlib  = require('zlib'); // manifest.json is fetched compressed
 const url   = require('url');
 
 /* ── Red Proxy (Scramjet Controller, in-process) ──────────────────
@@ -264,7 +265,8 @@ async function listR2GameFoldersViaS3(topPrefix) {
 }
 
 /* Layer 0 — manifest.json fast path. */
-let manifestCache = null; // { data, expires }
+let manifestCache = null;   // { data, expires }
+let manifestInFlight = null; // shared promise, so a burst of requests fetches once
 const MANIFEST_CACHE_TTL_MS = parseInt(process.env.MANIFEST_CACHE_TTL_MS || String(30 * 1000), 10);
 
 function fetchManifest() {
@@ -275,16 +277,34 @@ function fetchManifest() {
         hostname: R2_PUBLIC_DOMAIN,
         path: '/manifest.json',
         agent: httpsAgent,
-        headers: { 'user-agent': 'red-portal-server' },
+        headers: {
+          'user-agent': 'red-portal-server',
+          /* The manifest is ~17 MB of highly repetitive JSON -- every value
+             is the same URL prefix plus the key. Asking for it compressed
+             turns that into a couple of MB on the wire, which matters
+             because this runs on every cache miss. */
+          'accept-encoding': 'gzip, deflate, br',
+        },
       },
       res => {
         if (res.statusCode !== 200) {
           res.resume();
           return reject(new Error(`manifest.json returned HTTP ${res.statusCode}`));
         }
+        const enc = String(res.headers['content-encoding'] || '').toLowerCase();
+        let stream = res;
+        try {
+          if (enc === 'gzip') stream = res.pipe(zlib.createGunzip());
+          else if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
+          else if (enc === 'br') stream = res.pipe(zlib.createBrotliDecompress());
+        } catch (e) {
+          res.resume();
+          return reject(new Error(`manifest.json could not be decompressed: ${e.message}`));
+        }
         const chunks = [];
-        res.on('data', c => chunks.push(c));
-        res.on('end', () => {
+        stream.on('data', c => chunks.push(c));
+        stream.on('error', e => reject(new Error(`manifest.json stream failed: ${e.message}`)));
+        stream.on('end', () => {
           try {
             resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')));
           } catch (e) {
@@ -304,28 +324,59 @@ function fetchManifest() {
 async function getManifest() {
   const now = Date.now();
   if (manifestCache && manifestCache.expires > now) return manifestCache.data;
-  const data = await fetchManifest();
-  manifestCache = { data, expires: now + MANIFEST_CACHE_TTL_MS };
-  return data;
+  /* Without this, a burst of requests arriving after the TTL lapses each
+     starts its own multi-megabyte download and parse. Share one. */
+  if (manifestInFlight) return manifestInFlight;
+  manifestInFlight = fetchManifest()
+    .then(data => {
+      manifestCache = { data, expires: Date.now() + MANIFEST_CACHE_TTL_MS };
+      return data;
+    })
+    .finally(() => { manifestInFlight = null; });
+  return manifestInFlight;
+}
+
+/* Index the manifest ONCE per fetch, not once per prefix.
+   ------------------------------------------------------
+   The manifest holds ~95k keys and only a few hundred of them are an
+   index.html. Scanning every key for every top prefix (Games/, Testing/,
+   Apps/, ...) repeated that 95k-key walk on each listing; testing the
+   filename first and grouping in a single pass does it once and hands
+   each prefix a ready-made map. */
+let manifestIndex = null; // { source, byPrefix }
+function indexManifest(manifest) {
+  if (manifestIndex && manifestIndex.source === manifest) return manifestIndex.byPrefix;
+
+  const byPrefix = new Map(); // "Games/" -> Map(folder -> [{ subPath, depth }])
+  for (const relPath of Object.keys(manifest)) {
+    if (!/index\.html?$/i.test(relPath)) continue;
+    const topEnd = relPath.indexOf('/');
+    if (topEnd === -1) continue;
+    const rest = relPath.slice(topEnd + 1);
+    const slashIdx = rest.indexOf('/');
+    if (slashIdx === -1) continue; // stray file directly under the prefix
+
+    const topPrefix = relPath.slice(0, topEnd + 1);
+    const folder = rest.slice(0, slashIdx);
+    const subPath = rest.slice(slashIdx + 1);
+
+    let folders = byPrefix.get(topPrefix);
+    if (!folders) byPrefix.set(topPrefix, (folders = new Map()));
+    let candidates = folders.get(folder);
+    if (!candidates) folders.set(folder, (candidates = []));
+    candidates.push({ subPath, depth: subPath.split('/').length });
+  }
+
+  manifestIndex = { source: manifest, byPrefix };
+  return byPrefix;
 }
 
 /* Same { folder, name, href }[] shape as listR2GameFoldersViaS3, but
    computed purely from the already-fetched manifest keys in memory --
    no network calls at all. */
 function buildGameListFromManifest(topPrefix, manifest) {
-  const byFolder = new Map(); // folder -> [{ subPath, depth }, ...]
-
-  for (const relPath of Object.keys(manifest)) {
-    if (!relPath.startsWith(topPrefix)) continue;
-    const rest = relPath.slice(topPrefix.length);
-    const slashIdx = rest.indexOf('/');
-    if (slashIdx === -1) continue; // stray file directly under the prefix
-    const folder  = rest.slice(0, slashIdx);
-    const subPath = rest.slice(slashIdx + 1);
-    if (!/index\.html?$/i.test(subPath)) continue;
-    if (!byFolder.has(folder)) byFolder.set(folder, []);
-    byFolder.get(folder).push({ subPath, depth: subPath.split('/').length });
-  }
+  const byFolder = indexManifest(manifest).get(topPrefix);
+  if (!byFolder) return [];
 
   const overrides = getGameOverrides();
   const results = [];
@@ -714,8 +765,13 @@ function getGameOverrides() {
   try {
     const raw = fs.readFileSync(path.join(STATIC, 'game-overrides.json'), 'utf8');
     _gameOverrides = JSON.parse(raw);
-  } catch {
-    _gameOverrides = {};
+  } catch (e) {
+    /* Do NOT memoise the failure. Caching {} here meant that if the file
+       was briefly unreadable at boot, every override stayed lost until a
+       restart -- and an edit to game-overrides.json never took effect at
+       all, which quietly contradicts the short list-cache TTL. */
+    if (e.code !== 'ENOENT') console.warn(`  ⚠  game-overrides.json unreadable (${e.message}) -- continuing without overrides.`);
+    return {};
   }
   return _gameOverrides;
 }
