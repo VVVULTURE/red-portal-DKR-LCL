@@ -1044,10 +1044,14 @@ function parseJsonBody(req) {
 }
 
 /* ── Forward a request payload to the local bot ────────────────── */
-function forwardToBot(payload) {
+/* BOT_URL carries the request path (".../post-request"), so a second
+   endpoint is addressed by swapping the pathname rather than adding an
+   env var that would have to be set on Render as well as here. */
+function forwardToBot(payload, botPath) {
   return new Promise((resolve, reject) => {
     const body    = JSON.stringify(payload);
     const parsed  = new URL(BOT_URL);
+    if (botPath) parsed.pathname = botPath;
     const isHttps = parsed.protocol === 'https:';
     const lib     = isHttps ? https : http;
 
@@ -1077,6 +1081,68 @@ function forwardToBot(payload) {
     });
     req.end(body);
   });
+}
+
+/* ── Handle POST /api/report ───────────────────────────────────
+   A bug report, not a request. Same bot, same shared secret, but a
+   different door: /post-request starts a pipeline that goes looking for a
+   game and tries to add it, which is exactly the wrong response to "this
+   is broken". Reports land in Discord as a notification and stop there. */
+const REPORT_KINDS = ['Broken game', 'Bug or glitch', 'Proxy issue', 'Other'];
+
+async function handleBugReport(req, res) {
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ error: 'Method not allowed' }));
+  }
+
+  const ct = (req.headers['content-type'] || '').toLowerCase();
+  if (!ct.includes('application/json')) {
+    res.writeHead(415, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ error: 'Expected application/json' }));
+  }
+
+  let body;
+  try {
+    body = await parseJsonBody(req);
+  } catch {
+    res.writeHead(400, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+  }
+
+  const summary = (body.summary || '').toString().trim().slice(0, 1000);
+  if (!summary) {
+    res.writeHead(400, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ error: 'Please describe the problem.' }));
+  }
+
+  if (!BOT_URL) {
+    console.error('  ✗  BOT_URL is not set — report dropped.');
+    res.writeHead(503, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ error: 'Bot not configured on server' }));
+  }
+
+  const payload = {
+    summary,
+    kind:      REPORT_KINDS.includes(body.kind) ? body.kind : 'Other',
+    where:     body.where    ? body.where.toString().trim().slice(0, 200) : null,
+    reporter:  body.reporter ? body.reporter.toString().trim().slice(0, 80) : null,
+    pageUrl:   body.pageUrl  ? body.pageUrl.toString().trim().slice(0, 300) : null,
+    // Taken from the request, not from the page: a browser string the
+    // client hands us is worth nothing, and this is the one detail that
+    // actually makes "it does not work for me" reproducible.
+    userAgent: (req.headers['user-agent'] || '').toString().slice(0, 200) || null,
+  };
+
+  try {
+    await forwardToBot(payload, '/post-report');
+    res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+    res.end(JSON.stringify({ ok: true }));
+  } catch (err) {
+    console.error('  ✗  Could not forward report to bot:', err.message);
+    res.writeHead(502, { 'content-type': 'application/json', ...CORS_HEADERS });
+    res.end(JSON.stringify({ error: 'Could not reach the bot — is it running?' }));
+  }
 }
 
 /* ── Handle POST /api/request ──────────────────────────────────── */
@@ -1531,6 +1597,11 @@ const server = http.createServer((req, res) => {
   /* ── /api/request — game/service request → Discord webhook ── */
   if (pathname === '/api/request') {
     return handleGameRequest(req, res);
+  }
+
+  /* ── /api/report — bug report → Discord notification, no pipeline ── */
+  if (pathname === '/api/report') {
+    return handleBugReport(req, res);
   }
 
   /* ── /api/movies — list videos in the Movies/ folder ── */

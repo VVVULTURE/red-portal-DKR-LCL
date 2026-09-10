@@ -1501,6 +1501,7 @@ footer {
     <a href="#apps"                  data-section="apps">📱 Apps</a>
     <a href="#emulation"             data-section="emulation">🕹️ Emulation</a>
     <a href="#form"                  data-section="form">📋 Requests</a>
+    <a href="#report"                data-section="report">🐞 Report</a>
     <a href="#executor"              data-section="executor">💻 Executor</a>
     <a href="#links"                 data-section="links">🔗 Links</a>
     <a href="#tutorials"             data-section="tutorials">🎬 Tutorials</a>
@@ -1781,6 +1782,83 @@ footer {
 
         <button class="btn-primary" id="btnSubmitRequest">📨 Submit Request</button>
         <p class="status" id="requestStatus" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── REPORT — bug/glitch/broken game. Same styling as Requests on
+       purpose: it is the same shape of task for whoever fills it in. Goes
+       to the same Discord, but through /api/report, which notifies rather
+       than starting the add-a-game pipeline. ── -->
+  <section id="report" class="section" aria-label="Report a problem">
+    <div class="section-inner">
+      <h2>🐞 Report a Problem</h2>
+      <div class="card">
+        <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1.5rem;line-height:1.65;">
+          Something broken? A game that won't load, a glitch, anything wrong with the site — tell us here and it lands straight in our Discord.
+        </p>
+
+        <div class="field">
+          <label class="section-label" for="repKind">What kind of problem?</label>
+          <select id="repKind">
+            <option value="Broken game">🎮 A game won't load or is broken</option>
+            <option value="Bug or glitch">🐞 Bug or glitch on the site</option>
+            <option value="Proxy issue">🕵️ Red Proxy problem</option>
+            <option value="Other">💬 Something else</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="section-label" for="repWhere">
+            Which game or page?
+            <span style="color:var(--text-muted);font-weight:400;text-transform:none;font-size:.82em;">(optional)</span>
+          </label>
+          <!-- The list is filled at runtime from the same grid data the
+               tabs use, so every game currently on the site is suggested,
+               without hardcoding any of them. Free text either way. -->
+          <input
+            type="text"
+            id="repWhere"
+            list="repGameList"
+            placeholder="e.g. Cookie Clicker, or the Emulation tab"
+            autocomplete="off"
+            maxlength="200"
+          />
+          <datalist id="repGameList"></datalist>
+        </div>
+
+        <div class="field">
+          <label class="section-label" for="repSummary">
+            What happened? <span aria-hidden="true" style="color:var(--accent)">*</span>
+          </label>
+          <textarea
+            id="repSummary"
+            placeholder="What did you do, and what went wrong? Any error message you saw helps."
+            maxlength="1000"
+            rows="4"
+            spellcheck="false"
+          ></textarea>
+        </div>
+
+        <div class="field">
+          <label class="section-label" for="repAlias">
+            Your Name / Alias
+            <span style="color:var(--text-muted);font-weight:400;text-transform:none;font-size:.82em;">(optional)</span>
+          </label>
+          <input
+            type="text"
+            id="repAlias"
+            placeholder="Anonymous"
+            autocomplete="off"
+            maxlength="80"
+          />
+        </div>
+
+        <button class="btn-primary" id="btnSubmitReport">🐞 Send Report</button>
+        <p class="status" id="reportStatus" aria-live="polite"></p>
+        <p style="color:var(--text-muted);font-size:.78rem;margin-top:.9rem;line-height:1.6;">
+          Your browser version and the page you reported from are included automatically — they are usually what makes a bug reproducible.
+        </p>
       </div>
     </div>
   </section>
@@ -2895,6 +2973,97 @@ footer {
   // Allow Enter key in the name field to submit
   $reqName.addEventListener('keydown', e => {
     if (e.key === 'Enter') $btnSubmit.click();
+  });
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     10b. REPORT FORM — POSTs to /api/report → Discord notification
+     Same shape as the request form above, different destination: this
+     one does not start the pipeline that goes hunting for a game.
+  ═══════════════════════════════════════════════════════════════ */
+  const $btnReport   = document.getElementById('btnSubmitReport');
+  const $repKind     = document.getElementById('repKind');
+  const $repWhere    = document.getElementById('repWhere');
+  const $repSummary  = document.getElementById('repSummary');
+  const $repAlias    = document.getElementById('repAlias');
+  const $repGameList = document.getElementById('repGameList');
+
+  /* Suggest the games that actually exist right now. Uses the inlined grid
+     data when the server provided it, so this costs nothing; falls back to
+     reading what the grids already rendered. Never fetches on its own. */
+  function fillReportGameList() {
+    if (!$repGameList) return;
+    let names = [];
+    if (window.__RP_GRIDS) {
+      names = Object.values(window.__RP_GRIDS).flat().map(g => g && g.name).filter(Boolean);
+    }
+    if (!names.length) {
+      names = [...document.querySelectorAll('#gamesGrid .game-btn, #preLaunchGrid .game-btn, #appsGrid .game-btn')]
+        .map(a => a.textContent.trim()).filter(Boolean);
+    }
+    if (!names.length) return;
+    const seen = new Set();
+    $repGameList.innerHTML = names
+      .filter(n => !seen.has(n) && seen.add(n))
+      .sort((a, b) => a.localeCompare(b))
+      .map(n => `<option value="${escHtml(n)}"></option>`)
+      .join('');
+  }
+  fillReportGameList();
+
+  let repCooldown = false;
+
+  $btnReport.addEventListener('click', async () => {
+    const summary = $repSummary.value.trim();
+
+    if (!summary) {
+      setStatus('reportStatus', '⚠ Please describe what went wrong.', 'err');
+      $repSummary.focus();
+      return;
+    }
+
+    if (repCooldown) {
+      setStatus('reportStatus', '⏳ Please wait a moment before sending another.', 'err');
+      return;
+    }
+
+    $btnReport.disabled    = true;
+    $btnReport.textContent = '⏳ Sending…';
+    setStatus('reportStatus', '', '');
+
+    const payload = {
+      summary,
+      kind:     $repKind.value,
+      where:    $repWhere.value.trim() || null,
+      reporter: $repAlias.value.trim() || null,
+      pageUrl:  location.href.slice(0, 300),
+    };
+
+    try {
+      const res  = await fetch('https://redportal.dpdns.org/api/report', {
+        method:  'POST',
+        headers: { 'content-type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        setStatus('reportStatus', '✓ Report sent — thanks, we\'ll take a look.', 'ok');
+        $repSummary.value = '';
+        $repWhere.value   = '';
+        $repAlias.value   = '';
+        $repKind.value    = 'Broken game';
+        repCooldown = true;
+        setTimeout(() => { repCooldown = false; }, 10000);
+      } else {
+        setStatus('reportStatus', '⚠ ' + (data.error || 'Server error — try again.'), 'err');
+      }
+    } catch (_) {
+      setStatus('reportStatus', '⚠ Could not reach server. Try again in a moment.', 'err');
+    } finally {
+      $btnReport.disabled    = false;
+      $btnReport.textContent = '🐞 Send Report';
+    }
   });
 
 
