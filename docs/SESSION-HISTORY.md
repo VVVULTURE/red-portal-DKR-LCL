@@ -19,7 +19,7 @@
 > re-deriving them costs far more than storing them. Condense old entries only
 > if they are genuinely redundant, and keep the root causes.
 
-Last updated: **2026-09-10**
+Last updated: **2026-09-10** (re-verified against the live site)
 
 ---
 
@@ -79,7 +79,7 @@ back from somewhere and are dead — see §5.
 | --- | --- |
 | R2 objects | 87,956 |
 | Games listed on the site | 104 (Games 46, Testing 57, Apps 1) |
-| Games listed that actually load | **104 / 104** |
+| Games listed that actually load | **103 / 104** — Dadish 3D is broken, see ledger #21 |
 | Hardcoded game links in `index.html` | **0** |
 | Requests before the grids appear | **0** (inlined into the HTML) |
 | `manifest.json` | ~875 KB gzipped, revalidated by ETag |
@@ -306,6 +306,33 @@ revalidation (**878,970 bytes → 0**), and a boot-time warm-up.
 Deleted 10 dead `redproxy/` files and 146 lines of routing. The hidden nav link
 still pointed at `frame.html`; it points at `#redproxy` now.
 
+#### Session 3 — verification pass
+
+**Asked:** "I thought all of the games on Red Portal were fixed now."
+
+They very nearly were, and this file was the thing that was wrong. Fetched
+every `href` in `/api/grids` (104 of them) rather than trusting §9:
+
+- **103 of 104 load.** The one failure is Dadish 3D — ledger #21.
+- **§9's "13 games are gone everywhere" was false.** Eight of them —
+  Granny, Eaglercraft 1.8, Eaglercraft 1.12.2, Stardew Valley, GTA Vice City,
+  FNF, Baldi's Basic Plus, ASRP — were listed and playable the entire time.
+  That list was compiled during the *pre-prune* audit and never re-checked
+  after the bucket-built manifest (`f19c031`) restored them. It also flatly
+  contradicted §2 in the same document. Ledger #22.
+- Only **Google Snake, Postal and Get Yolked** are genuinely absent.
+- **`Testing/Recoil` holds 372 more games** — see §9.
+
+**Method note worth keeping:** the "104/104 working" figure came from checking
+HTTP status. Dadish 3D returns 200 with 32 bytes of JSON. *Status codes do not
+verify content* — check size and sniff for `<` when auditing game entry points.
+Two other traps hit on the way: `urllib` rejects unencoded spaces in URLs, so
+four healthy games (`GTA Vice City`, `Snow Rider 3D`, `How To Fish`,
+`Youtube + YT Music`) looked broken until the paths were percent-encoded; and
+`/api/r2-status` reported `manifest.json fetch timed out` at 10.5 s while a
+direct fetch of the same object took **0.6 s** — treat that diagnostic's
+timeout as advisory, not as evidence the manifest is slow.
+
 #### Phase D — the Report tab
 
 **Asked for:** a Report tab next to Requests, styled like it, for bugs and
@@ -386,6 +413,8 @@ Read this before debugging. Several of these present identically.
 | 18 | **62 live games vanished from the site** | A *correct* local-only manifest — the bucket holds games the folder does not | Manifest built from the bucket |
 | 19 | Would have shipped a manifest listing just-deleted games | The manifest was uploaded **before** the prune ran | Rewritten from the survivors after pruning |
 | 20 | Bot would build dead game links | `templates.js` pointed at `redproxy/embed.html`, deleted in Phase C | Builds `/rp/` URLs with the codec |
+| 21 | **A game listed, returns HTTP 200, but is not a game** (Dadish 3D) | `Testing/Dadish-3D/index.html` is 32 bytes of `{"ISO":"US","ccpaApplies":false}` — a CCPA geo-API response saved as `index.html` while scraping. Shallowest-wins picks it over the real `gamefile/index.html` | Not yet fixed. **A status-code check cannot catch this class** — the audit that produced "104/104" only looked at HTTP status |
+| 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
 
 ---
 
@@ -446,11 +475,20 @@ honestly returns 502.
 
 - **GeForce NOW streaming is untested.** Sign-in reaches the real form; playing
   a game needs the owner's NVIDIA account.
-- **13 games are gone everywhere** — Google Snake, Granny, Eaglercraft 1.8/1.12,
-  Stardew Valley, GTA Vice City (the `Testing/` copy), Postal, FNF, Baldi's
-  Basics Plus, Get Yolked, Five Nights At Epsteins, A Day in the Office,
-  Amazing Strange Rope Police. Not on R2, not in the repo, not in the folder.
-  They need their files restored locally before a sync can bring them back.
+- **Dadish 3D is broken** — the only listed game that does not load. See
+  ledger #21. Not a quick override fix: the real entry point pulls its Unity
+  build from `rawcdn.githack.com` and the `.data`/`.wasm` are not on R2, so it
+  needs re-scraping.
+- **Only 3 games are actually missing** — Google Snake, Postal, Get Yolked.
+  ~~13 games are gone everywhere~~ **was wrong** — see the correction note
+  below. Verified 2026-09-10 by fetching every `href` in `/api/grids`.
+- **`Testing/Recoil` is a mirrored game hub holding 372 more playable games**
+  (`Testing/Recoil/_cdn/3be7cabfa2eb/*/index.html`) that the site surfaces as a
+  single tile. They are already on R2 and already paid for in storage. Listing
+  them would take the site from 104 to ~470 games with no new uploads. Three
+  games previously believed lost live in here: `a day in the office`,
+  `amazing-strange-rope-police-vice-spider`, `last-breath-epstein`. Whether to
+  surface them, and how, is the owner's call.
 - **Credentials shared in conversation** (R2 access key + secret, and the bot's
   hardcoded fallbacks) should be rotated. Rotating R2 means updating the `.bat`
   and the bot's `.env`.
