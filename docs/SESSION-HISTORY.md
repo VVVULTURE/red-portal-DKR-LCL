@@ -48,6 +48,7 @@ re-deriving anything. Read in this order:
 | Asset bucket | Cloudflare R2, public at `https://assets.redportal.dpdns.org` |
 | Local sync folder | `C:\Stuff\RedTesting\red-portal-DKR-LCL-main` |
 | Discord bot | `C:\Stuff\Red Bot\red-portal-bot-for-friend` (local, exposed via ngrok) |
+| Single-file port builder | `github.com/VVVULTURE/Web-App-To-HTML-Builder` (**private**), working copy `C:\Stuff\WATHB`, output `C:\Stuff\WATHB-built` |
 
 **The local sync folder is not the repo.** It holds the game files (`Games/`,
 `Testing/`, `Apps/`, `Emulation/`, `Movies/`) that get uploaded to R2. The repo
