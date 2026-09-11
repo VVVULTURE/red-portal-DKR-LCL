@@ -78,8 +78,8 @@ back from somewhere and are dead — see §5.
 | Measure | Value |
 | --- | --- |
 | R2 objects | 87,956 |
-| Games listed on the site | 104 (Games 46, Testing 57, Apps 1) |
-| Games listed that actually load | **103 / 104** — Dadish 3D is broken, see ledger #21 |
+| Games listed on the site | 104 (Games 46, Testing 57, Apps 1) — **2 are now dead tiles, see below** |
+| Games listed that actually load | **102 / 104** — Dadish 3D and Recoil were deleted from the bucket; the manifest still lists them (ledger #23) |
 | Hardcoded game links in `index.html` | **0** |
 | Requests before the grids appear | **0** (inlined into the HTML) |
 | `manifest.json` | ~875 KB gzipped, revalidated by ETag |
@@ -333,6 +333,52 @@ four healthy games (`GTA Vice City`, `Snow Rider 3D`, `How To Fish`,
 direct fetch of the same object took **0.6 s** — treat that diagnostic's
 timeout as advisory, not as evidence the manifest is slow.
 
+#### Session 3b — WATHB, the single-file port builder
+
+**Asked for:** a pipeline that turns a game folder into one `.html` that still
+works, where every path the game asks for resolves even with no assets on
+disk and no errors. Manual first, then generalise. Reference point:
+`National-Porting-Association/EverBuilder`.
+
+Lives in its own repo now — see the project map. Red Portal's own code was
+not touched by this work.
+
+**The finding that shaped the design.** The first Unity attempt failed with
+`createUnityInstance is not defined`. A `<script src>` that is already in the
+markup is set by the HTML parser internally: `setAttribute` is never called,
+the `src` property setter is never invoked, and the request starts before any
+script can run. So a runtime hook — which is all EverBuilder has — cannot
+catch it. **Two layers are required**: the builder rewrites what is in the
+markup, the runtime catches what is created dynamically. Ledger #24.
+
+**Where EverBuilder would not have been enough** (read before reusing it):
+its `findBestMatch` falls back to basename equality, so any request for
+`data.json` gets the first embedded key ending in `data.json` — wrong file,
+silently. Its XHR shim ignores `responseType`, so a loader asking for
+`arraybuffer` gets text. It hooks neither `img.src`, Workers, `importScripts`,
+nor CSS `url()`.
+
+**Verified, not assumed:**
+
+- 2048 — 16 requests to **0**, no new errors, tiles still respond to arrow
+  keys, and `font-family` still resolves to Clear Sans, which proves the
+  `@import` -> `@font-face` -> `url()` chain survived (those resolve relative
+  to the *stylesheet*, not the document).
+- Deepest Sword (Unity WebGL, 24.8 MiB) — 7 requests to **0**, renders its
+  title screen from a single 33 MiB file.
+- Batch: **94 of 102 folders built, 0 failures.**
+
+**Hard limits, measured:**
+
+- V8 caps one JS string at **512 MiB**, so base64 carries at most **384 MiB**
+  of assets. **8 games exceed it** — Silksong 4.6 GB, OMORI 2.9 GB, Cuphead
+  2.1 GB, Deltarune 1.7 GB, GTA Vice City 1.6 GB, Animal Crossing 1.4 GB,
+  Hollow Knight 861 MB, Getting Over It 660 MB. These cannot be single files
+  at all; the builder refuses rather than emitting something broken.
+- **Only 2 of 31 Unity-tagged games have complete local builds.** The other 29
+  are partial mirrors that stream from a CDN — the same shape as Dadish 3D.
+  44 of the 94 builds report missing references for this reason.
+
 #### Phase D — the Report tab
 
 **Asked for:** a Report tab next to Requests, styled like it, for bugs and
@@ -414,6 +460,8 @@ Read this before debugging. Several of these present identically.
 | 19 | Would have shipped a manifest listing just-deleted games | The manifest was uploaded **before** the prune ran | Rewritten from the survivors after pruning |
 | 20 | Bot would build dead game links | `templates.js` pointed at `redproxy/embed.html`, deleted in Phase C | Builds `/rp/` URLs with the codec |
 | 21 | **A game listed, returns HTTP 200, but is not a game** (Dadish 3D) | `Testing/Dadish-3D/index.html` is 32 bytes of `{"ISO":"US","ccpaApplies":false}` — a CCPA geo-API response saved as `index.html` while scraping. Shallowest-wins picks it over the real `gamefile/index.html` | Not yet fixed. **A status-code check cannot catch this class** — the audit that produced "104/104" only looked at HTTP status |
+| 23 | **A tile 404s after deleting its files from R2** | The site lists from `manifest.json`, which is only rewritten by a sync. Deleting objects from the bucket by hand leaves them listed | Run a normal `sync_to_r2.py` (no `--prune`); it rebuilds the manifest from the bucket |
+| 24 | **A single-file port loads but the app's own `<script src>` 404s** | References already in the markup are set by the HTML parser internally — `setAttribute` and the `src` property setter never see them, and the request starts before any script runs | Rewrite static refs at BUILD time; a runtime hook can only catch dynamic ones. Both layers required — see the WATHB repo |
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
 
 ---
@@ -475,10 +523,11 @@ honestly returns 502.
 
 - **GeForce NOW streaming is untested.** Sign-in reaches the real form; playing
   a game needs the owner's NVIDIA account.
-- **Dadish 3D is broken** — the only listed game that does not load. See
-  ledger #21. Not a quick override fix: the real entry point pulls its Unity
-  build from `rawcdn.githack.com` and the `.data`/`.wasm` are not on R2, so it
-  needs re-scraping.
+- **The manifest needs regenerating.** The owner deleted `Testing/Dadish-3D`
+  and `Testing/Recoil` from the R2 bucket (and they are gone locally too), but
+  `manifest.json` still lists them, so the site shows two tiles that 404.
+  A normal `sync_to_r2.py` run rebuilds the manifest from the bucket and fixes
+  it — no prune needed. Ledger #23.
 - **Only 3 games are actually missing** — Google Snake, Postal, Get Yolked.
   ~~13 games are gone everywhere~~ **was wrong** — see the correction note
   below. Verified 2026-09-10 by fetching every `href` in `/api/grids`.
