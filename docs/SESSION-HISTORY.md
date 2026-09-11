@@ -400,8 +400,33 @@ destroying Latin-1 scripts; percent-encoded filenames; mirrored CDN trees
 resolved by unique suffix; iframes as separate documents (9 games are
 wrappers; Eggy Car went 80 requests -> 0).
 
-**Next:** rebuild all 94 with these, run the blob-mode verification with
-`--concurrency 5`, triage what is left. Last stale run was 14 failures of 63.
+**Outcome (2026-09-11): 70 of 95 verified, and those 70 are now live in the
+sync folder.** `replace.py` moved each original folder to
+`C:\Stuff\WATHB-replaced-originals` and dropped the single file in as
+`index.html`; the manifest there makes rollback one command:
+`python replace.py --restore --apply`. Failures and the 8 over-ceiling games
+were left untouched as multi-file folders.
+
+**The sync has NOT been run** -- R2 still serves the old multi-file versions.
+A normal `sync_to_r2.py` run publishes the swap. Note it leaves the old
+per-game files orphaned in the bucket; harmless, since discovery takes the
+shallowest `index.html`, but only a `--prune` removes them.
+
+Later classes found by triaging failures by signature rather than one game at
+a time: scripts carrying BOTH a src and a body were never inlined (the spec
+ignores the body, my regex required it to be empty) -- Basketball Stars' physics
+engine vanished this way; webpack's `publicPath: auto` reads
+`document.currentScript.src`, empty for an inlined script, and throws; iframes
+are separate documents and the generic media path turned them into data: URLs
+with no runtime, so Eggy Car pulled 79 assets off a CDN; `<meta charset>` was
+pushed past the browser's 1024-byte sniff window by the payload, producing
+mojibake; `'replace'` decoding destroyed Latin-1 scripts outright.
+
+Two verifier bugs that faked results, worth remembering: a 12s wait reported
+Basketball Legends as "stuck" when it simply had not started, and a
+percent-encoded filename (`Baldi%27s`) missed the ignore list and looked like
+the port reaching the network. A short timeout does not produce fast results,
+it produces wrong ones.
 
 #### Phase D — the Report tab
 
