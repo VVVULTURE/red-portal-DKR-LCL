@@ -380,6 +380,29 @@ nor CSS `url()`.
   are partial mirrors that stream from a CDN — the same shape as Dadish 3D.
   44 of the 94 builds report missing references for this reason.
 
+**Status at the pause on 2026-09-10 (resumed 2026-09-11):** the tool is at
+`29b7b4e` in the WATHB repo. Built output is in `C:\Stuff\WATHB-built`, NOT
+pushed anywhere -- the owner tests them by hand through Red Portal's HTML
+executor. **The only environment that counts is a blob: tab**; verifying over
+`http://` passed games that were broken in production, twice. The verifier's
+`blob-harness.html` now reproduces the real launch path.
+
+Defect classes found and fixed in the pipeline so far, each one a class:
+runtime died on `new URL('.', blobUrl)` (blob URLs are opaque); inlined
+scripts never fire `onload` (love.js starts Balatro from it); GameMaker's
+getter-only `response` on the XHR prototype; the page's own `blob:` URLs
+were being synthesized over (Brotato's merged wasm); the app's own
+`new URL()` throwing; every service-worker call throwing (opaque origin);
+removed ad SDK globals; libraries genuinely absent from the folder (16 games,
+now vendored at build time); `<meta charset>` pushed past the browser's
+1024-byte sniff window by the payload (mojibake); lossy `'replace'` decoding
+destroying Latin-1 scripts; percent-encoded filenames; mirrored CDN trees
+resolved by unique suffix; iframes as separate documents (9 games are
+wrappers; Eggy Car went 80 requests -> 0).
+
+**Next:** rebuild all 94 with these, run the blob-mode verification with
+`--concurrency 5`, triage what is left. Last stale run was 14 failures of 63.
+
 #### Phase D — the Report tab
 
 **Asked for:** a Report tab next to Requests, styled like it, for bugs and
