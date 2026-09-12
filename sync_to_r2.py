@@ -34,6 +34,13 @@ Mirroring (deleting remote files that no longer exist locally):
     python sync_to_r2.py <root> --prune            # DRY RUN: writes prune-plan.txt
     python sync_to_r2.py <root> --prune --yes      # actually delete
 
+    --prune-prefix limits it to part of the bucket, which is what you want
+    after replacing a game folder with a single index.html: the old files are
+    still on R2 (an upload-only sync never deletes), so the bucket lists the
+    whole multi-file version and looks as though the sync did nothing.
+
+    python sync_to_r2.py <root> --prune --prune-prefix Games/ --prune-prefix Testing/
+
     --prune without --yes never deletes anything. Read prune-plan.txt first;
     it is the exact list. --max-deletes guards against a mistake wiping the
     bucket (default 500; raise it deliberately once you have read the plan).
@@ -230,6 +237,10 @@ def delete_keys(s3, bucket, keys):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root", help="Local folder to sync")
+    parser.add_argument("--prune-prefix", action="append", metavar="PREFIX",
+                        help="Limit --prune to keys starting with PREFIX "
+                             "(repeatable). Use this to clear the leftovers "
+                             "from one folder instead of pruning the bucket.")
     parser.add_argument("--prune", action="store_true",
                         help="Mirror: plan deletion of every remote object with no local file")
     parser.add_argument("--yes", action="store_true",
@@ -386,6 +397,21 @@ def main():
     if args.prune:
         keep = set(local_files) | {MANIFEST_FILE} | load_keep_list()
         stale = sorted(remote - keep)
+
+        # --prune-prefix narrows the blast radius to the given prefixes.
+        # Replacing a game folder with a single index.html leaves every old
+        # file behind, because an upload-only sync never deletes -- so the
+        # bucket still lists the whole multi-file version and looks as though
+        # the sync did nothing. Cleaning that up does not need a whole-bucket
+        # prune, and a whole-bucket prune is the operation that once came
+        # within one step of destroying 62 live games.
+        if args.prune_prefix:
+            before = len(stale)
+            stale = [k for k in stale
+                     if any(k.startswith(p) for p in args.prune_prefix)]
+            print("")
+            print("  Scoped to " + str(len(args.prune_prefix)) + " prefix(es): "
+                  + str(len(stale)) + " of " + str(before) + " stale objects match.")
 
         with open(PLAN_FILE, "w", encoding="utf-8") as f:
             f.write("\n".join(stale))
