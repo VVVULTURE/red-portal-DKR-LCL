@@ -892,6 +892,39 @@ const SCRAMJET_HEADERS = Object.freeze({
   'cross-origin-embedder-policy': 'require-corp',
 });
 
+/* ── Cross-origin isolation for the launcher page ──────────────────
+   Some games need SharedArrayBuffer -- Stardew Valley is built on .NET
+   WASM and its runtime asserts outright without it:
+     "Assert failed: SharedArrayBuffer is not enabled on this page."
+   SharedArrayBuffer only exists in a cross-origin-isolated document, and
+   openGame() builds the game's blob: tab FROM this page, so isolating
+   this page is what isolates the game (measured: a blob tab created by an
+   isolated document reports crossOriginIsolated === true and has a working
+   SharedArrayBuffer; created by a non-isolated one it has neither).
+
+   credentialless, NOT require-corp. The note above explains why require-corp
+   was rejected site-wide: assets.redportal.dpdns.org sends no CORP header,
+   so every game icon on the page is blocked. credentialless buys the same
+   isolation by sending cross-origin no-cors requests without credentials,
+   which public R2 assets do not need. Measured, all three modes, same page:
+
+     headers            isolated   SharedArrayBuffer   R2 icon
+     unsafe-none        no         no                  loads
+     credentialless     YES        YES                 loads
+     require-corp       yes        yes                 BLOCKED
+
+   The fetch openGame() makes -- portal origin, 302 to R2 -- was checked
+   under credentialless too and is unaffected: R2 answers with
+   Access-Control-Allow-Origin: *, and that fetch is CORS-mode anyway.
+
+   Safari supports only require-corp, so it keeps today's behaviour: no
+   isolation, and SharedArrayBuffer-dependent games stay broken there. That
+   is strictly no worse than now. */
+const ISOLATION_HEADERS = Object.freeze({
+  'cross-origin-opener-policy':   'same-origin',
+  'cross-origin-embedder-policy': 'credentialless',
+});
+
 /* Serve one static file from an arbitrary root dir (not necessarily
    STATIC) with SCRAMJET_HEADERS applied -- used for scramjet/controller/
    libcurl's own bundled files and the /redproxy/ page itself.
@@ -1452,6 +1485,9 @@ function serveIndexWithGrids(req, res) {
     'cache-control': 'no-cache',
     'content-length': body.length,
     ...CORS_HEADERS,
+    // last, so it overrides the unsafe-none pair in CORS_HEADERS: the game
+    // tab inherits its isolation from this document
+    ...ISOLATION_HEADERS,
   });
   res.end(body);
 }
