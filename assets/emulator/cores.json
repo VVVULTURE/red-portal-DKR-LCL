@@ -31,5 +31,6 @@
   "Genesis": "segaMD",
   "SegaSaturn": "segaSaturn",
   "SNES": "snes",
+  "TurboGrafx16": "pce",
   "VirtualBoy": "vb"
 }

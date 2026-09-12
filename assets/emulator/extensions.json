@@ -17,6 +17,11 @@
 
   "nds": "NDS",
 
+  "pce": "TurboGrafx16",
+
+  "cso": "PSP",
+  "pbp": "PSP",
+
   "gb": "GB",
   "gbc": "GBC",
   "gba": "GBA",
