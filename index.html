@@ -1407,6 +1407,9 @@ footer {
 }
 
   </style>
+  <!-- The console-style presentation layer (wheel, scene, transitions).
+       Everything above stays as it was; assets/ui/ only adds to it. -->
+  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260913a" />
 </head>
 <body>
 
@@ -1487,7 +1490,17 @@ footer {
 <div id="theme-bg" aria-hidden="true"></div>
 
 <!-- ═══════════════════════════════
-     HEADER
+     SCENE — the artist's depth layers, parallax, atmosphere.
+     Filled by assets/ui/scene.js from the active theme's `layers`.
+═══════════════════════════════ -->
+<div id="scene" aria-hidden="true">
+  <div class="px-stack" id="pxStack"></div>
+  <div class="px-vignette"></div>
+  <div class="px-fx" id="pxFx"></div>
+</div>
+
+<!-- ═══════════════════════════════
+     HEADER (top bar)
 ═══════════════════════════════ -->
 <header role="banner">
   <!-- Logo → always navigates to Games section -->
@@ -1495,7 +1508,16 @@ footer {
     <img src="https://assets.redportal.dpdns.org/assets/logo/logo.png" alt="Red Portal" width="52" height="52" />
   </a>
 
-  <!-- Primary navigation -->
+  <button type="button" class="crumb-back" id="btnBack" hidden aria-label="Back to the main menu">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>
+    Back
+  </button>
+  <span class="crumb" id="crumb" hidden></span>
+
+  <!-- Primary navigation. Kept as the single source of truth for what
+       the tabs are (label, glyph, section) -- the wheel in assets/ui/app.js
+       is built FROM these links and clicks them, so every existing handler
+       below still runs. Visually hidden by wheel.css. -->
   <nav id="mainNav" aria-label="Main navigation">
     <a class="active" href="#games"   data-section="games">🎮 Games</a>
     <a href="#apps"                  data-section="apps">📱 Apps</a>
@@ -1518,6 +1540,24 @@ footer {
          accessibility. -->
     <a href="#redproxy" id="navRedProxy" class="nav-hidden">🕵️ Red Proxy</a>
   </nav>
+
+  <!-- Search (visible only in the list views: Games / Apps / Testing / Emulation) -->
+  <div id="search-bar-wrap" role="search" aria-label="Search games">
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="11" cy="11" r="7"/>
+        <line x1="16.5" y1="16.5" x2="22" y2="22"/>
+      </svg>
+      <input
+        type="search"
+        id="gameSearch"
+        placeholder="Search…"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Search games"
+      />
+    </div>
+  </div>
 
   <!-- Settings (theme slide-out) trigger -->
   <div class="side-panel-trigger-wrap">
@@ -1573,29 +1613,54 @@ footer {
 </div>
 
 <!-- ═══════════════════════════════
-     STICKY SEARCH BAR
-     (visible only on Games / Apps / Testing / Emulation sections)
+     STAGE — the wheel views (assets/ui/app.js).
+     Home: the main tabs on a wheel, preview on the left.
+     List: the games of one section on a wheel, the selected game's art
+     on the left. Both share one wheel engine (assets/ui/wheel.js).
 ═══════════════════════════════ -->
-<div id="search-bar-wrap" role="search" aria-label="Search games">
-  <div class="search-wrap">
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <circle cx="11" cy="11" r="7"/>
-      <line x1="16.5" y1="16.5" x2="22" y2="22"/>
-    </svg>
-    <input
-      type="search"
-      id="gameSearch"
-      placeholder="Search games…"
-      autocomplete="off"
-      spellcheck="false"
-      aria-label="Search games"
-    />
-  </div>
+<div id="stage" aria-label="Main menu">
+  <section class="stage-view" id="stageHome" aria-label="Sections">
+    <div class="preview" id="homePreview"></div>
+    <div class="wheel-wrap">
+      <div class="wh-arrows" aria-hidden="false">
+        <button type="button" class="wh-arrow" id="homeUp" aria-label="Previous">
+          <svg viewBox="0 0 16 16"><path d="M3 10l5-5 5 5"/></svg>
+        </button>
+        <button type="button" class="wh-arrow" id="homeDown" aria-label="Next">
+          <svg viewBox="0 0 16 16"><path d="M3 6l5 5 5-5"/></svg>
+        </button>
+      </div>
+      <div class="wheel" id="homeWheel" aria-label="Sections wheel"></div>
+    </div>
+  </section>
+
+  <section class="stage-view" id="stageList" aria-label="Games">
+    <div class="preview" id="listPreview"></div>
+    <div class="wheel-wrap">
+      <div class="list-head">
+        <div class="list-title" id="listTitle"></div>
+        <div class="list-count" id="listCount"></div>
+      </div>
+      <div class="wh-arrows">
+        <button type="button" class="wh-arrow" id="listUp" aria-label="Previous">
+          <svg viewBox="0 0 16 16"><path d="M3 10l5-5 5 5"/></svg>
+        </button>
+        <button type="button" class="wh-arrow" id="listDown" aria-label="Next">
+          <svg viewBox="0 0 16 16"><path d="M3 6l5 5 5-5"/></svg>
+        </button>
+      </div>
+      <div class="wheel" id="listWheel" aria-label="Games wheel"></div>
+    </div>
+  </section>
 </div>
 
 <!-- ═══════════════════════════════
-     MAIN CONTENT
+     PANEL VIEW — every existing section, unchanged, shown in a frame.
+     The Games / Apps / Testing / Emulation grids inside it are the data
+     the wheels read; they are rendered but never displayed.
 ═══════════════════════════════ -->
+<div id="panelView">
+<div class="panel-frame">
 <main id="main-content">
 
   <!-- ── GAMES ── -->
@@ -1956,6 +2021,26 @@ footer {
     Source on GitHub
   </a>
 </footer>
+</div><!-- /.panel-frame -->
+</div><!-- /#panelView -->
+
+<!-- ═══════════════════════════════
+     HINT BAR — console-style control legend, plus the footer links so
+     they are reachable from the home wheel too.
+═══════════════════════════════ -->
+<div id="hintbar" aria-hidden="true">
+  <span id="hintText"></span>
+  <span class="hint-links">
+    <a href="https://discord.gg/TzEsEJgtJp" target="_blank" rel="noopener noreferrer" title="Join our Discord">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.03.056a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+      <span>Discord</span>
+    </a>
+    <a href="https://github.com/VVVULTURE/red-portal-DKR-LCL" target="_blank" rel="noopener noreferrer" title="Source on GitHub">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+      <span>GitHub</span>
+    </a>
+  </span>
+</div>
 
 <!--
   defer: script executes after HTML is parsed, before DOMContentLoaded.
@@ -1997,8 +2082,18 @@ footer {
        id    : unique string key (stored in localStorage)
        name  : display name shown in the dropdown
        color : hex accent colour (replaces all red in the UI)
-       bg    : path to background image (relative to index.html)
-               Set null for no background image.
+       bg    : flat wallpaper URL, the pre-layers fallback. Used only if
+               the layers below are missing or fail to load. null = none.
+       folder: the theme's folder under assets/themes/ on R2, holding the
+               artist's depth layers (see docs/UI-REDESIGN.md).
+       layers: the layer files, BACK TO FRONT. The artist numbers them
+               3 (farthest) .. 1 (nearest); not every theme has all three.
+       depth : how much each layer shifts with the mouse, same order as
+               layers. 1 = full parallax, 0 = pinned. The opaque back layer
+               moves most (it is oversized, nothing shows behind it); a
+               full-frame haze layer barely moves; a foreground prop that
+               is ALSO painted into the back layer must not move at all or
+               it ghosts -- that is why Smooth Ride is nearly static.
   ═══════════════════════════════════════════════════════════════ */
   const THEMES = [
     {
@@ -2006,73 +2101,121 @@ footer {
       name:  'Default',
       color: '#FF2020',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/default.png',
+      folder: 'Default',
+      layers: ['default-3.png', 'default-2.png', 'default-1.png'],
+      depth:  [1, 0.5, 0.1],
     },
      {
       id:    'Red Portal',
       name:  'Red Portal',
       color: '#FF2020',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/The_Portal_Wallpaper_Not_Merged.png',
+      folder: 'Red Portal',
+      layers: ['redportal-3.png', 'redportal-2.png'],
+      depth:  [1, 0.45],
     },
     {
       id:    'rain',
       name:  'Rain',
       color: '#4A9EFF',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/rainy.gif',
+      folder: 'Rainy',
+      layers: ['rain-3.gif', 'rain-2.png', 'rain-1.gif'],
+      depth:  [1, 0.5, 0.15],
     },
     {
       id:    'Summer',
       name:  'Summer',
       color: '#F2F135',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/summer.png',
+      folder: 'Sunny Day',
+      layers: ['Sunny-3.png', 'Sunny-2.png', 'Sunny-1.png'],
+      depth:  [1, 0.35, 0.12],
     },
     {
       id:    'Smooth Ride',
       name:  'Smooth Ride',
       color: '#7D7EB3',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/car.png',
+      folder: 'Smooth Ride',
+      layers: ['ride-3.png', 'ride-2.png', 'ride-1.png'],
+      // the truck and flag are painted in BOTH ride-3 and ride-1; any real
+      // offset shows two trucks. Nearly pinned until the artist clears
+      // them out of ride-3.
+      depth:  [0.12, 0.08, 0.04],
     },
     {
       id:    'Cracked',
       name:  'Cracked',
       color: '#ffffff',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/Cracked.png',
+      folder: 'Cracked',
+      layers: ['cracked-3.png', 'cracked-2.png'],
+      depth:  [1, 0.5],
     },
     {
       id:    'Mr. Aspin',
       name:  'Mr. Aspin',
       color: '#21A666',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/aspin.png',
+      folder: 'Mr Aspin',
+      layers: ['Aspin-3.png', 'Aspin-2.png'],
+      depth:  [1, 0.5],
     },
     {
       id:    'BOTW',
       name:  'BOTW',
       color: '#8A1A91',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/BOTW.png',
+      folder: 'BOTW',
+      layers: ['botw-3.png', 'botw-2.png', 'botw-1.png'],
+      depth:  [1, 0.5, 0.1],
     },
     {
       id:    'Windows XP',
       name:  'Windows XP',
       color: '#CFD42A',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/XP.png',
+      folder: 'XP',
+      layers: ['xp-3.png', 'xp-2.png', 'xp-1.png'],
+      depth:  [1, 0.5, 0.15],
     },
     {
       id:    'Portal',
       name:  'Portal',
       color: '#FFA200',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/Portal-Game.png',
+      folder: 'Portal',
+      layers: ['portal-3.png', 'portal-2.png', 'portal-1.png'],
+      depth:  [1, 0.5, 0.25],
     },
     {
       id:    'Windows 7',
       name:  'Windows 7',
       color: '#156CBF',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/Windows_7.png',
+      folder: 'Windows-7',
+      layers: ['windows7-3.png', 'windows7-2.png', 'windows7-1.png'],
+      depth:  [1, 0.5, 0.3],
+    },
+    {
+      id:    'Geometry Dash',
+      name:  'Geometry Dash',
+      color: '#3D8BFF',
+      bg:    null,
+      folder: 'GeometryDash',
+      layers: ['geometrydash-3.png', 'geometrydash-2.png', 'geometrydash-1.png'],
+      depth:  [1, 0.5, 0.25],
     },
     /* ── Add more themes below ──────────────────────────────────
     {
       id:    'forest',
       name:  'Forest',
       color: '#3DBA6F',
-      bg:    'https://assets.redportal.dpdns.org/assets/themes/forest.jpg',
+      bg:    null,
+      folder: 'Forest',
+      layers: ['forest-3.png', 'forest-2.png', 'forest-1.png'],
+      depth:  [1, 0.5, 0.2],
     },
     ─────────────────────────────────────────────────────────── */
   ];
@@ -2083,6 +2226,7 @@ footer {
      2. THEME ENGINE
   ═══════════════════════════════════════════════════════════════ */
   const THEME_KEY = 'rp_theme';
+  let currentThemeId = 'default';
 
   /** Convert 6-digit hex string to { r, g, b } integers. */
   function hexToRgb(hex) {
@@ -2108,7 +2252,28 @@ footer {
     root.setProperty('--glow-sm',      `0 0 8px rgba(${r},${g},${b},0.38)`);
     root.setProperty('--glow-md',      `0 0 18px rgba(${r},${g},${b},0.44), 0 0 40px rgba(${r},${g},${b},0.19)`);
 
-    // Background image — preload to avoid flash, then reveal
+    // Background image — preload to avoid flash, then reveal. A theme with
+    // depth layers leaves this alone: the scene draws those instead, and
+    // the flat wallpaper is only fetched if the layers fail (see
+    // setFlatBackground, called from assets/ui/app.js in that case).
+    if (!(theme.layers && theme.layers.length)) setFlatBackground(theme);
+
+    store.set(THEME_KEY, id);
+    currentThemeId = theme.id;
+
+    // Sync active state in side panel theme list
+    document.querySelectorAll('.sp-theme-option').forEach(opt => {
+      opt.classList.toggle('active', opt.dataset.themeId === id);
+    });
+
+    // The scene (assets/ui/scene.js) builds the parallax layers from
+    // theme.layers. It listens rather than being called, so this engine
+    // has no dependency on the UI layer existing at all.
+    document.dispatchEvent(new CustomEvent('rp:theme', { detail: { theme } }));
+  }
+
+  /** The pre-layers wallpaper on #theme-bg. */
+  function setFlatBackground(theme) {
     const bgEl = document.getElementById('theme-bg');
     if (theme.bg) {
       bgEl.classList.remove('loaded');
@@ -2128,13 +2293,6 @@ footer {
       bgEl.classList.remove('loaded');
       document.body.classList.remove('has-bg');
     }
-
-    store.set(THEME_KEY, id);
-
-    // Sync active state in side panel theme list
-    document.querySelectorAll('.sp-theme-option').forEach(opt => {
-      opt.classList.toggle('active', opt.dataset.themeId === id);
-    });
   }
 
   /** Build the side-panel theme list from the THEMES array. */
@@ -2747,6 +2905,7 @@ footer {
   // icon uploaded yet just 404s and removes itself (onerror handler in the
   // template below), no icon shown, same look as before this feature.
   const ICON_BASE_URL = 'https://assets.redportal.dpdns.org/assets/icons/';
+  const latestGrids = {};   // grid element id -> last list painted
 
   const escHtml = s => String(s).replace(/[&<>"]/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -2769,6 +2928,12 @@ footer {
     $grid.dataset.lastRendered = html;
     $grid.innerHTML = html;
     rebuildSearchCache(); // grid DOM nodes just got replaced -- old cache is stale
+    // The wheel UI (assets/ui/app.js) builds its list from this same data,
+    // so a game that appears here appears there in the same moment. The
+    // snapshot exists because the inlined first paint runs before that
+    // script has loaded and would otherwise be missed.
+    latestGrids[containerId] = list;
+    document.dispatchEvent(new CustomEvent('rp:grid', { detail: { id: containerId, list } }));
     return true;
   }
 
@@ -3268,8 +3433,32 @@ footer {
     }
   }
 
+  /* ═══════════════════════════════════════════════════════════════
+     BRIDGE for the wheel UI (assets/ui/app.js). The only things it needs
+     from in here: how to launch a game, how to switch a section, and the
+     theme list. Everything else it reads from the DOM and the rp:* events.
+  ═══════════════════════════════════════════════════════════════ */
+  window.RedPortal = Object.freeze({
+    openGame,
+    showSection,
+    applyTheme,
+    THEMES,
+    currentTheme: () => THEMES.find(t => t.id === currentThemeId) || THEMES[0],
+    setFlatBackground,
+    grids: () => latestGrids,
+  });
+
 })(); // end IIFE
 
 </script>
+<!-- Presentation layer. Order matters: the engine modules first, the
+     controller last. They are plain scripts so a blob-wrapped copy of this
+     page (the launcher case, which injects <base>) resolves them the same
+     way it resolves /api/*. -->
+<script src="assets/ui/wheel.js?v=20260913a"></script>
+<script src="assets/ui/scene.js?v=20260913a"></script>
+<script src="assets/ui/sfx.js?v=20260913a"></script>
+<script src="assets/ui/art.js?v=20260913a"></script>
+<script src="assets/ui/app.js?v=20260913a"></script>
 </body>
 </html>

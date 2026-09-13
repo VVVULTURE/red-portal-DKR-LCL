@@ -19,7 +19,7 @@
 > re-deriving them costs far more than storing them. Condense old entries only
 > if they are genuinely redundant, and keep the root causes.
 
-Last updated: **2026-09-12**
+Last updated: **2026-09-13**
 
 ---
 
@@ -57,6 +57,7 @@ re-deriving anything. Read in this order:
 | --- | --- |
 | `docs/SESSION-HISTORY.md` (this file) | the site, the proxy, R2 discovery, the bot, the bug ledger, the runbook |
 | `docs/SINGLE-FILE-PORTS.md` | the WATHB pipeline: how a port is built, every defect class, the measured limits, what "verified" means |
+| `docs/UI-REDESIGN.md` | the wheel interface (Sept 2026): how it attaches to the old site, the theme layer contract, the art registry, the input model, what was verified |
 
 **The local sync folder is not the repo.** It holds the game files (`Games/`,
 `Testing/`, `Apps/`, `Emulation/`, `Movies/`) that get uploaded to R2. The repo
@@ -68,7 +69,9 @@ is "missing from the repo" — they were never there.
 | File | Role |
 | --- | --- |
 | `server.js` | Everything: static serving, `/api/*`, the R2 game discovery, the server-side proxy routes |
-| `index.html` | The whole front end, one file, two inline `<script>` blocks |
+| `index.html` | The front end: all functionality, one file, two inline `<script>` blocks |
+| `assets/ui/*` | The wheel presentation layer on top of it -- see `docs/UI-REDESIGN.md` |
+| `tools/ui-harness/` | Headless-Chromium tests for that layer (not shipped in the image) |
 | `redproxy/ssr.mjs` | Server-side Scramjet: rewrites pages, injects the client, WebSocket relay |
 | `redproxy/rp-client.js` | Injected into every proxied page: virtual URL identity, navigation interception |
 | `sync_to_r2.py` | Uploads the local folder to R2, writes `manifest.json`, optional mirror-prune |
@@ -82,7 +85,7 @@ back from somewhere and are dead — see §5.
 
 ---
 
-## 2. Current state (2026-09-12)
+## 2. Current state (2026-09-13)
 
 | Measure | Value |
 | --- | --- |
@@ -91,7 +94,9 @@ back from somewhere and are dead — see §5.
 | Games listed that actually load | **103 / 103** — checked by fetching every `href` |
 | Games served as ONE self-contained .html | **70** (see `SINGLE-FILE-PORTS.md`) |
 | Games that can never be single-file | 8 — over the 384 MiB ceiling |
-| Emulation ROMs | 98, sorted into 12 console folders |
+| Emulation ROMs | 98 in the sync folder, sorted into 12 console folders. **The bucket still holds the 98 flat originals too, so `/api/emulation` returns 196** -- ledger #28 |
+| Theme wallpapers | 12, each split into depth layers under `assets/themes/<Folder>/` in the sync folder (33 files, ~27 MB). **Not on R2 until the next normal sync** |
+| Front end | Wheel interface (`docs/UI-REDESIGN.md`), on branch `ui-redesign` pending the layer sync |
 | Hardcoded game links in `index.html` | **0** |
 | Requests before the grids appear | **0** (inlined into the HTML) |
 | Launcher page cross-origin isolated | **Yes** — COOP same-origin + COEP credentialless |
@@ -487,6 +492,63 @@ not return `Content-Length` on a `HEAD`, so every comparison was against
 `None`. A `Range: bytes=0-0` request reports the true size in `Content-Range`.
 Measure with a method you have confirmed returns a number.
 
+#### Session 5 — the wheel interface
+
+**Asked for:** a complete UI redesign into a console-frontend experience
+(the owner's spec: a rotating wheel of tabs, a preview to its left, the
+artist's layered backgrounds with parallax, a forward zoom into sections,
+smooth animated selection from mouse, keyboard, on-screen arrows and touch)
+with every existing function preserved, nothing guessed, and no partial
+deploy.
+
+**Inspected before designing** (all from the repo and the live site, which
+was byte-identical to `origin/main`): vanilla single-file SPA, no router, no
+history use, `showSection()` toggles `.active`; 12 tabs incl. hidden Red
+Proxy; grids from `__RP_GRIDS` + `/api/grids` every 20 s, Emulation from
+`/api/emulation`; `openGame()` blob-wraps; 11 flat wallpaper themes; CSS
+breakpoints only, no touch code; no back convention; 14 icons, no logos.
+
+**Asked the owner only what inspection could not settle** (§7 of the UI
+doc): where the layers were (a folder in the sync folder, found only after
+asking -- they were not in the repo, R2, Drive or the disk when searched),
+back navigation, the mouse model, looping and sound, layer hosting, touch,
+the reference.
+
+**Measured the layers** rather than trusting the numbering: dimensions,
+alpha coverage and content bounds of all 33 files, then a contact sheet per
+theme. That is how the Smooth Ride ghost (truck in both layer 3 and layer 1)
+and the full-frame haze overlays were found.
+
+**Built** `assets/ui/` (wheel, scene, sfx, art, app, css) as a layer around
+the untouched site -- the main wheel is built from the `<nav>` links and
+clicks them, the game wheels from the same lists the grids render. Three
+small hooks in `index.html`; a bridge object; theme entries gained
+`folder/layers/depth`. Details in `docs/UI-REDESIGN.md`.
+
+**Verified** with a headless harness (`tools/ui-harness/`): every input,
+every view, launch as a real popup, history, the foreign-origin blob
+launcher, the flat-wallpaper fallback, reduced motion, Red Proxy reveal,
+themes, sounds, and the local build over the production origin with real
+data, desktop and phone viewports. 58 fps with the 196-item wheel. Zero page
+errors.
+
+**Bugs found on the way, all fixed:** `display` beating `[hidden]` twice
+(off-wheel items stacked at the poles; Back button on the home view); a
+parked cursor hijacking keyboard navigation through synthesized
+`pointerover` (ledger #30); steering that ended on its own first frame after
+a ramp was added; `previewCache` used before its `const` ran.
+
+**Also found, not part of the brief:** the Emulation duplicates (#28) and a
+real bug in `sync_to_r2.py`'s post-prune manifest rewrite (#29, fixed).
+
+**Not done, deliberately:** the Emulation prune. The owner said to use my
+judgement and delete duplicates; the R2 write credentials are not in the
+`.bat` (placeholders) and reading the bot's hardcoded fallbacks was blocked
+by the tool sandbox, so the exact commands are in §8 for the owner to run.
+The layers also reach R2 only through that sync, which is why the redesign
+sits on a branch rather than `main`: pushing it first would show flat
+wallpapers until the sync ran.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
@@ -555,6 +617,9 @@ Read this before debugging. Several of these present identically.
 | 27 | **A game listed on the site loads a menu but never starts** | Verification scored it on its start screen. A clean console is not proof a game runs | `verify.mjs --click <text>`; and the stuck-loader check compares visible text against the original |
 | 23 | **A tile 404s after deleting its files from R2** | The site lists from `manifest.json`, which is only rewritten by a sync. Deleting objects from the bucket by hand leaves them listed | Run a normal `sync_to_r2.py` (no `--prune`); it rebuilds the manifest from the bucket |
 | 24 | **A single-file port loads but the app's own `<script src>` 404s** | References already in the markup are set by the HTML parser internally — `setAttribute` and the `src` property setter never see them, and the request starts before any script runs | Rewrite static refs at BUILD time; a runtime hook can only catch dynamic ones. Both layers required — see the WATHB repo |
+| 28 | **Emulation lists every ROM twice; `/api/emulation` returns 196** | The Sept 12 sort uploaded the ROMs into console folders but the prune was scoped to `Games/ Testing/ Apps/`, so the 98 flat `Emulation/*.zip` originals are still real objects (confirmed: `cf-cache-status: MISS`, dated Aug 24). Emulation is a live bucket listing, not manifest-backed, so it sees both | `--prune --prune-prefix Emulation/` (§8). Not run yet -- needs the owner's credentials |
+| 29 | **After a scoped prune the manifest delists every bucket-only object outside the pruned prefixes** | The post-prune rewrite in `sync_to_r2.py` rebuilt the manifest from local files + keep list instead of the surviving bucket -- the same class as #18, one prune later. This is why the manifest had 98 Emulation keys while the bucket had 196 | Rewrite from (remote minus deleted) + local + keep |
+| 30 | **Keyboard navigation on the wheel lands on the wrong item when the mouse is parked over it** | Chrome fires `pointerover` when content animates under a still cursor; hover-select on that event re-targeted the wheel mid-ease | Hover-select moved into `pointermove` and only on a real change of coordinates |
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
 
 ---
@@ -600,6 +665,21 @@ python sync_to_r2.py "<root>" --prune --prune-prefix Games/ --prune-prefix Testi
 # read prune-plan.txt, then add:  --yes --max-deletes <count>
 ```
 
+### Clearing the duplicate Emulation ROMs (ledger #28)
+
+The local `Emulation/` folder holds only the sorted copies, so a scoped
+prune lists exactly the 98 flat originals. Run from the sync folder with the
+five `R2_*` env vars set, dry-run first:
+
+```powershell
+python sync_to_r2.py 'C:\Stuff\RedTesting\red-portal-DKR-LCL-main' --prune --prune-prefix Emulation/
+# read prune-plan.txt -- expect 98 keys, all directly under Emulation/, none inside a console folder -- then:
+python sync_to_r2.py 'C:\Stuff\RedTesting\red-portal-DKR-LCL-main' --prune --prune-prefix Emulation/ --yes --max-deletes 98
+```
+
+The same run uploads anything new in the folder, including the theme
+layers, and rewrites the manifest from the surviving bucket (#29 fix).
+
 ### Building and verifying single-file ports
 
 See `SINGLE-FILE-PORTS.md`. The one rule that matters: **verify in a blob tab**
@@ -631,6 +711,15 @@ honestly returns 502.
 
 ## 9. Open items
 
+- **The wheel interface is on branch `ui-redesign`, not deployed.** Order:
+  (1) a normal sync from the sync folder publishes the 33 layer files (and,
+  with `--prune --prune-prefix Emulation/`, clears #28); (2) merge to `main`;
+  Render deploys; (3) `tools/ui-harness/prod-test.mjs` against the live site.
+- **Smooth Ride's layer 3 needs the truck and flag painted out** before that
+  theme can have real parallax. Tab logos and game logos are placeholders
+  until the artist supplies them (`assets/ui/art-manifest.json`).
+- **Steering feel** is tuned by eye (`RPWheel.CFG` in `assets/ui/wheel.js`);
+  the owner has not tried it on a real mouse yet.
 - **25 of the 95 built ports still fail verification** and were deliberately
   NOT swapped in; those games remain multi-file folders and work as before.
   `triage.py` groups the failures by signature — they cluster, so one fix

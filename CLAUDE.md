@@ -6,6 +6,7 @@
 | --- | --- |
 | `docs/SESSION-HISTORY.md` | Architecture, the bug ledger, the runbook (including the destructive commands), and the record of what has already been tried and ruled out. **Start here.** |
 | `docs/SINGLE-FILE-PORTS.md` | The WATHB pipeline: how a game becomes one self-contained `.html`, every defect class found, the measured limits, and what "verified" actually means. |
+| `docs/UI-REDESIGN.md` | The wheel interface: it is a layer AROUND the old `index.html`, not a rewrite. How it attaches, the theme layer contract, the art registry, the input model, and `tools/ui-harness/` to re-verify it. |
 
 Several bugs in this project present identically and have completely different
 causes. Checking the ledger first is cheaper than re-deriving them — that has
@@ -45,6 +46,13 @@ to them by name.
 5. **Verify in a blob tab, never over `http://`.** They are different URL
    contexts. Testing over http has twice passed games that were broken in
    production.
+6. **`display` beats `[hidden]`.** Any element with a `display` rule needs a
+   `[hidden] { display: none }` partner or `hidden` does nothing. This has
+   shipped invisible bugs twice in one afternoon.
+7. **The main wheel is built from the `<nav>` links and clicks them.** Add a
+   tab by adding a link there, as before; there is no second list of tabs.
+   Theme layers live in `THEMES[]` (`folder/layers/depth`) and on R2 under
+   `assets/themes/<Folder>/` -- they reach R2 only through a normal sync.
 
 ## Hard product rules
 

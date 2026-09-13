@@ -1,0 +1,32 @@
+import { chromium } from 'playwright';
+import fs from 'node:fs'; import path from 'node:path';
+const THEMES_DIR = 'C:/Stuff/RedTesting/red-portal-DKR-LCL-main/assets/themes';
+const b = await chromium.launch();
+const c = await b.newContext({ viewport: { width: 1600, height: 900 } });
+await c.route('https://assets.redportal.dpdns.org/assets/themes/**', route => {
+  const rel = decodeURIComponent(new URL(route.request().url()).pathname.replace('/assets/themes/', ''));
+  const f = path.join(THEMES_DIR, rel);
+  fs.existsSync(f) ? route.fulfill({ status: 200, contentType: f.endsWith('.gif') ? 'image/gif' : 'image/png', body: fs.readFileSync(f) }) : route.fulfill({ status: 404, body: '' });
+});
+const L = await c.newPage();
+await L.goto('http://localhost:8899/');
+const [P] = await Promise.all([c.waitForEvent('page'), L.click('#go')]);
+const errors = []; P.on('pageerror', e => errors.push(e.message)); P.on('console', m => { if (m.type()==='error') errors.push('console: ' + m.text().slice(0,120)); });
+await P.waitForLoadState('load');
+await P.waitForTimeout(4500);
+console.log('portal url:', P.url().slice(0, 40), 'origin:', await P.evaluate(() => location.origin));
+console.log(await P.evaluate(() => ({ app: !!window.RPApp, layers: document.querySelectorAll('.px-layer').length, hasLayers: document.body.classList.contains('has-layers'), sel: window.RPApp && window.RPApp.homeWheel.selected.key, games: (window.RedPortal.grids().gamesGrid||[]).length })));
+await P.keyboard.press('ArrowDown'); await P.waitForTimeout(600);
+await P.keyboard.press('ArrowUp'); await P.waitForTimeout(600);
+await P.keyboard.press('Enter'); await P.waitForTimeout(1400);
+console.log('after enter:', await P.evaluate(() => ({ view: window.RPApp.view, list: window.RPApp.listWheel.selected.label, hist: !!(history.state && history.state.rp) })));
+const [G] = await Promise.all([c.waitForEvent('page', { timeout: 8000 }).catch(() => null), P.keyboard.press('Enter')]);
+console.log('game tab:', G ? G.url().slice(0, 40) : 'NONE');
+if (G) { await G.waitForTimeout(2500); console.log('game title:', await G.title()); await G.close(); }
+await P.keyboard.press('Escape'); await P.waitForTimeout(1300);
+console.log('after esc:', await P.evaluate(() => window.RPApp.view));
+await P.goBack().catch(e => console.log('goBack:', e.message.slice(0,60)));
+await P.waitForTimeout(600);
+await P.screenshot({ path: 'shots/30-blob-launched.png' });
+console.log('errors:', errors);
+await b.close();

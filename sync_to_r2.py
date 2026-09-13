@@ -444,9 +444,16 @@ def main():
             # that way puts the site straight back into the state this whole
             # exercise was about: entries that 404. Rewrite it to what is
             # actually left and send it again.
+            #
+            # "What is left" is the bucket minus what was deleted, PLUS this
+            # run's uploads. It used to be local files + keep list only, which
+            # after a --prune-prefix run silently delisted every object the
+            # bucket had outside the pruned prefixes but this folder did not
+            # (the 62-vanished-games bug, again, one prune later).
             if pruned:
+                survivors = (remote - set(stale)) | set(local_files) | keep
                 manifest = {k: "https://" + public_domain + "/" + k
-                            for k in sorted(set(local_files) | keep)}
+                            for k in sorted(survivors)}
                 manifest[MANIFEST_FILE] = "https://" + public_domain + "/" + MANIFEST_FILE
                 with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
                     json.dump(manifest, f, indent=2)

@@ -1,0 +1,22 @@
+{
+  "_readme": [
+    "Artwork registry for the wheel UI. Every entry is optional: anything",
+    "missing gets a generated placeholder that says 'artwork pending'.",
+    "Drop the file on R2 (or in assets/) and add its URL here -- no code",
+    "changes. Keys:",
+    "  tabs   : section id (games, apps, emulation, Testing, form, report,",
+    "           executor, links, tutorials, movies, credits, redproxy) -> logo",
+    "           image URL. Transparent PNG, about 1200x400, shown ~50vw wide.",
+    "  games  : game key (the Games/Testing/Apps folder name exactly, or the",
+    "           emulator entry's icon slug) -> logo image URL. Transparent PNG,",
+    "           about 900x400. When absent the 256px icon from assets/icons/",
+    "           is used, and when that is absent too, a placeholder.",
+    "  sfx    : tick | select | back | hover -> audio file URL, replacing the",
+    "           synthesized sound of the same name.",
+    "  layerBase : where theme layer folders live."
+  ],
+  "layerBase": "https://assets.redportal.dpdns.org/assets/themes/",
+  "tabs": {},
+  "games": {},
+  "sfx": {}
+}

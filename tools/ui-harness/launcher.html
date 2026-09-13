@@ -1,0 +1,11 @@
+<!doctype html><title>launcher</title>
+<button id="go">launch</button>
+<script>
+document.getElementById('go').onclick = async () => {
+  const res = await fetch('http://127.0.0.1:8811/');
+  let html = await res.text();
+  html = html.replace(/<head[^>]*>/i, m => m + '<base href="http://127.0.0.1:8811/">');
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  window.open(url, '_blank');
+};
+</script>

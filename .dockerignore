@@ -18,3 +18,6 @@ Testing
 manifest.json
 skipped.log
 sync_to_r2.py
+
+# Local test harness for the wheel UI -- never needed at runtime
+tools
