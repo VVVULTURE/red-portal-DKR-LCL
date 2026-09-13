@@ -114,6 +114,9 @@ window.RPWheel = (function () {
           (it.glyph ? `<span class="wh-glyph" aria-hidden="true">${it.glyph}</span>` : '') +
           `<span class="wh-label">${escapeHtml(it.label)}</span>` +
           (it.sub ? `<span class="wh-sub">${escapeHtml(it.sub)}</span>` : '');
+        // An artist icon (if any) is injected to the RIGHT of the label later
+        // by setItemIcon(), only once it's confirmed to exist -- so no request
+        // fires and nothing changes until one is actually uploaded.
         this.track.appendChild(b);
         return b;
       });
@@ -173,6 +176,21 @@ window.RPWheel = (function () {
     selectKey(key) {
       const i = this.items.findIndex(it => it.key === key);
       if (i >= 0) this.select(i);
+    }
+
+    /** Put an (already-confirmed) icon image to the right of item `key`'s
+     *  label. Idempotent; survives the per-frame transform updates. */
+    setItemIcon(key, url) {
+      const i = this.items.findIndex(it => it.key === key);
+      if (i < 0) return;
+      const node = this.nodes[i];
+      if (!node || node.querySelector('.wh-icon')) return;
+      const img = document.createElement('img');
+      img.className = 'wh-icon';
+      img.alt = '';
+      img.setAttribute('aria-hidden', 'true');
+      img.src = url;
+      node.appendChild(img);
     }
 
     /** Animated wheel-of-fortune spin to item i: a quick run that overshoots

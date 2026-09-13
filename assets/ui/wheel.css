@@ -502,6 +502,16 @@ kbd {
   color: var(--text-dim);
   text-transform: none;
 }
+/* Artist tab icon, to the right of the label. Scales with the item's font
+   so it grows on the selected (front) item like the text does. */
+.wh-item .wh-icon {
+  height: 1.5em;
+  width: auto;
+  margin-left: 0.6rem;
+  flex-shrink: 0;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 5px rgba(0,0,0,0.8));
+}
 .wh-item.is-front { color: #fff; text-shadow: 0 0 14px var(--accent-glow), 0 0 4px rgba(0,0,0,0.9), 0 2px 6px rgba(0,0,0,0.9); }
 .wh-item.is-front .wh-glyph { filter: none; }
 .wh-item.is-front .wh-sub { color: var(--accent); }

@@ -80,16 +80,29 @@
 
   /* ── main wheel: items come from the nav links ───────────────── */
 
+  // Clean, artist-friendly filenames for the tab icons -> assets/icons/tab-<slug>.png.
+  // The image removes itself if the file isn't there (see wheel.js), so the
+  // tabs look exactly as they do now until an icon is actually uploaded.
+  const TAB_ICON_SLUG = {
+    games: 'games', apps: 'apps', emulation: 'emulation', Testing: 'testing',
+    form: 'requests', report: 'report', executor: 'executor', links: 'links',
+    tutorials: 'tutorials', movies: 'movies', credits: 'credits',
+    settings: 'settings', navRedProxy: 'redproxy',
+  };
+  const TAB_ICON_BASE = 'https://assets.redportal.dpdns.org/assets/icons/tab-';
+
   function navItems() {
     return [...document.querySelectorAll('#mainNav a')].map(a => {
       const text = a.textContent.trim();
       const m = text.match(/^(\p{Extended_Pictographic}️?|\p{Emoji_Presentation})\s*(.*)$/u);
+      const key = a.dataset.section || a.id;
       return {
-        key:    a.dataset.section || a.id,
+        key,
         label:  m ? m[2] : text,
         glyph:  m ? m[1] : '',
         link:   a,
         hidden: a.classList.contains('nav-hidden'),
+        icon:   TAB_ICON_BASE + (TAB_ICON_SLUG[key] || key) + '.png',
       };
     }).filter(it => !it.hidden);
   }
@@ -97,6 +110,27 @@
   function buildHomeWheel() {
     const keep = homeWheel ? (homeWheel.selected || {}).key : 'games';
     homeWheel.setItems(navItems(), keep);
+    resolveTabIcons();
+  }
+
+  // Show an artist tab icon to the right of a tab, but ONLY once it exists.
+  // Probed with fetch (not an <img>), so a missing icon produces no console
+  // 404 and nothing changes until one is uploaded to assets/icons/tab-*.png.
+  const tabIconState = new Map();   // url -> true(exists) | false(absent) | 'pending'
+  function resolveTabIcons() {
+    for (const it of homeWheel.items) {
+      if (!it.icon) continue;
+      const known = tabIconState.get(it.icon);
+      if (known === true) { homeWheel.setItemIcon(it.key, it.icon); continue; }
+      if (known === false || known === 'pending') continue;
+      tabIconState.set(it.icon, 'pending');
+      fetch(it.icon, { cache: 'force-cache' })
+        .then(r => {
+          tabIconState.set(it.icon, r.ok);
+          if (r.ok) homeWheel.setItemIcon(it.key, it.icon);
+        })
+        .catch(() => tabIconState.set(it.icon, false));
+    }
   }
 
   homeWheel = new Wheel($('homeWheel'), {
