@@ -81,6 +81,31 @@ EXCLUDE_FILES = {STATE_FILE, PLAN_FILE, KEEP_FILE, "skipped.log", ".DS_Store", "
 EXCLUDE_PREFIXES = (".env",)          # .env, .env.local, .env.production, ...
 EXCLUDE_SUFFIXES = (".pem", ".key", ".pfx", ".p12")
 
+# Repo/infra files that get walked into the sync but Red Portal never fetches
+# from R2 -- it serves index.html/server.js from Render, redproxy/* and the
+# emulator page from the repo, and reads game-overrides.json off local disk.
+# Uploading them just clutters the bucket. These are matched against the
+# RELATIVE KEY, anchored at the bucket root, NOT by basename -- so a game
+# folder that legitimately contains one of these names is untouched. The one
+# that made this necessary: Testing/Terraria/public/_framework/ is a real
+# Blazor/.NET game and MUST keep syncing, while the stray root _framework/
+# (a DepotDownloader tool synced by accident) must not.
+EXCLUDE_PATHS = {
+    "index.html", "server.js", "package.json", "package-lock.json",
+    "Dockerfile", "docker-compose.yml", ".dockerignore", "dockerignore",
+    ".gitignore", "gitignore", ".gitattributes",
+    "game-overrides.json", "Red Portal (Offline).html",
+    "Sync to R2 (menu).bat", "sync_to_r2.py", "sync_to_r2.py.bak",
+    "assets/HELP_BRING_BACK.png",
+}
+EXCLUDE_PATH_PREFIXES = (
+    "redproxy/",          # served from the repo by server.js, never from R2
+    "_framework/",        # root only -- the accidental DepotDownloader upload
+    ".github/",
+    "assets/intro/",      # the old intro gif/audio, no longer used
+    "assets/tutorials/",  # the tutorials tab loads these from the Render origin
+)
+
 
 def is_excluded_file(name):
     if name in EXCLUDE_FILES:
@@ -88,6 +113,15 @@ def is_excluded_file(name):
     if name.startswith(EXCLUDE_PREFIXES):
         return True
     if name.endswith(EXCLUDE_SUFFIXES):
+        return True
+    return False
+
+
+def is_excluded_path(rel):
+    """Root-anchored exclusion by relative key (see EXCLUDE_PATHS)."""
+    if rel in EXCLUDE_PATHS:
+        return True
+    if rel.startswith(EXCLUDE_PATH_PREFIXES):
         return True
     return False
 
@@ -131,6 +165,8 @@ def scan_local(root):
                 continue
             full = os.path.join(dirpath, fname)
             rel = os.path.relpath(full, root).replace("\\", "/")
+            if is_excluded_path(rel):
+                continue
             try:
                 st = os.stat(full)
             except OSError:
@@ -366,7 +402,7 @@ def main():
             if key in manifest or key == MANIFEST_FILE:
                 continue
             parts = key.split("/")
-            if any(p in EXCLUDE_DIRS for p in parts) or is_excluded_file(parts[-1]):
+            if any(p in EXCLUDE_DIRS for p in parts) or is_excluded_file(parts[-1]) or is_excluded_path(key):
                 continue
             manifest[key] = "https://" + public_domain + "/" + key
             added += 1
