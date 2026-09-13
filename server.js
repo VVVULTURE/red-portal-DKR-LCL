@@ -1502,6 +1502,56 @@ async function handleAllGrids(req, res, fresh) {
     res.end(JSON.stringify({ games: [], testing: [], apps: [] }));
   }
 }
+
+/* ── POST /api/rescan — force an AUTHORITATIVE re-listing of the bucket ──
+   The normal grids come from manifest.json, which is fast but can go stale:
+   it is built from a local folder plus a bucket merge, so a file DELETED from
+   the bucket (e.g. an old top-level index.html replaced by one in a subfolder)
+   can linger in the manifest and keep winning "shallowest index.html". This
+   endpoint bypasses the manifest entirely and lists R2 live, so every folder's
+   real, current index.html is found. The result is cached for a while and
+   becomes the inlined snapshot, so the fix sticks rather than reverting on the
+   next poll. Read-only (uses the LIST credentials); safe to call anytime.   */
+const RESCAN_CACHE_MS = 10 * 60 * 1000;
+async function handleRescan(req, res) {
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ ok: false, error: 'POST only' }));
+  }
+  if (!getS3Client()) {
+    res.writeHead(503, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ ok: false, error: 'live R2 listing not configured' }));
+  }
+  try {
+    const now = Date.now();
+    const raw = {};
+    await Promise.all(Object.entries(GRID_PREFIXES).map(async ([key, prefix]) => {
+      const live = await listR2GameFoldersViaS3(prefix);   // authoritative, real objects only
+      raw[key] = live;
+      listCache.set(prefix, { data: live, expires: now + RESCAN_CACHE_MS });
+    }));
+    if (Object.values(raw).some(l => l.length)) lastGoodGrids = raw;
+    // Emulation is a live listing too; refresh it and drop its cache.
+    let emulation = 0;
+    try {
+      const emu = await listR2EmulationEntries();
+      listCache.set('emulation', { data: emu, expires: now + RESCAN_CACHE_MS });
+      emulation = emu.length;
+    } catch (e) { /* leave emulation as-is on error */ }
+    res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+    res.end(JSON.stringify({
+      ok: true,
+      games: (raw.games || []).length,
+      testing: (raw.testing || []).length,
+      apps: (raw.apps || []).length,
+      emulation,
+    }));
+  } catch (e) {
+    console.error('  ✗  /api/rescan error:', e.message);
+    res.writeHead(502, { 'content-type': 'application/json', ...CORS_HEADERS });
+    res.end(JSON.stringify({ ok: false, error: e.message }));
+  }
+}
 /* ── GET /api/emulation — auto-populate the Emulation grid from ROM files
    sitting under Emulation/<Console>/ on R2. Each entry's href points at the
    generic EmulatorJS player (assets/emulator/player.html) with the ROM's
@@ -1659,6 +1709,9 @@ const server = http.createServer((req, res) => {
      at them. */
   if (pathname === '/api/grids') {
     return handleAllGrids(req, res, parsed.query.fresh === '1');
+  }
+  if (pathname === '/api/rescan') {
+    return handleRescan(req, res);
   }
   if (pathname === '/api/games') {
     return handleGameList(req, res, 'Games/', parsed.query.fresh === '1');

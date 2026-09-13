@@ -69,13 +69,13 @@
     wrap.className = 'set-vol';
     const range = document.createElement('input');
     range.type = 'range';
-    range.min = '0'; range.max = '200'; range.step = '5';
-    range.value = String(Music ? Music.volume : 100);
+    range.min = '0'; range.max = '250'; range.step = '5';
+    range.value = String(Music ? Music.volume : 250);
     range.setAttribute('aria-label', 'Music volume');
     const out = document.createElement('span');
     out.className = 'set-vol-val';
     out.textContent = range.value + '%';
-    const paint = () => { const v = +range.value; out.textContent = v + '%'; range.style.setProperty('--fill', (v / 200 * 100) + '%'); };
+    const paint = () => { const v = +range.value; out.textContent = v + '%'; range.style.setProperty('--fill', (v / 250 * 100) + '%'); };
     range.addEventListener('input', () => { paint(); if (Music) Music.setVolume(+range.value); });
     paint();
     wrap.append(range, out);
@@ -146,7 +146,7 @@
       toggle(Music ? Music.enabled : true, on => { if (Music) Music.setEnabled(on); })));
     // Volume, 0-200% (100% = the track's own level; higher amplifies it).
     // Saved across sessions.
-    pane.appendChild(row('Music volume', 'How loud the theme plays, up to 200%.', volumeControl(Music)));
+    pane.appendChild(row('Music volume', 'How loud the theme plays, up to 250%.', volumeControl(Music)));
     const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const tag = document.createElement('span');
     tag.className = 'set-pill';
@@ -157,6 +157,34 @@
   /* ── About & Data ────────────────────────────────────────────── */
   function fillAbout(pane) {
     pane.innerHTML = '<h3 class="set-h">About & Data</h3>';
+
+    // Rescan: force an authoritative re-listing of the R2 bucket so newly
+    // added/replaced games, testing games and emulator ROMs (and moved
+    // index.html files) are picked up without waiting on the cached manifest.
+    const rescan = document.createElement('button');
+    rescan.type = 'button';
+    rescan.className = 'set-btn';
+    rescan.textContent = 'Rescan Game Files';
+    rescan.addEventListener('click', async () => {
+      if (rescan.disabled) return;
+      rescan.disabled = true;
+      const label = rescan.textContent;
+      rescan.textContent = 'Rescanning…';
+      try {
+        const res = await fetch('/api/rescan', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        if (RP.refreshGrids) RP.refreshGrids();   // repaint wheels from the fresh listing
+        const n = (data.games || 0) + (data.testing || 0) + (data.apps || 0);
+        rescan.textContent = `Found ${n} games ✓`;
+      } catch (e) {
+        rescan.textContent = 'Rescan failed — try again';
+      }
+      setTimeout(() => { rescan.textContent = label; rescan.disabled = false; }, 3500);
+    });
+    pane.appendChild(row('Rescan Game Files',
+      'Re-Syncs from the R2 bucket to gather all of the latest games, emulated games, and testing games from our storage.',
+      rescan));
 
     const links = document.createElement('div');
     links.className = 'set-links';

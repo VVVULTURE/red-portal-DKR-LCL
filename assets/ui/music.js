@@ -5,12 +5,12 @@
  *
  * An <audio> element's own volume caps at 1.0, so the track is routed through
  * the Web Audio API (MediaElementSource -> GainNode -> output) whose gain can
- * exceed 1 -- letting the volume run 0..200% (gain 0..2). If Web Audio is
+ * exceed 1 -- letting the volume run 0..250% (gain 0..2.5). If Web Audio is
  * unavailable the element's volume is used instead, capped at 100%.
  *
  * Two persisted preferences, both surviving across sessions:
  *   rp_music      "on" | "off"   -- default ON
- *   rp_music_vol  0..200 (percent) -- default 100
+ *   rp_music_vol  0..250 (percent) -- default 250
  *
  * Browsers block audio until the first user gesture, so playback (and the
  * AudioContext) start on the first interaction. The track URL comes from
@@ -26,10 +26,10 @@ window.RPMusic = (function () {
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
   };
 
-  function clampVol(v) { v = Math.round(Number(v)); if (!isFinite(v)) v = 100; return Math.max(0, Math.min(200, v)); }
+  function clampVol(v) { v = Math.round(Number(v)); if (!isFinite(v)) v = 100; return Math.max(0, Math.min(250, v)); }
 
   let enabled = store.get(KEY) !== 'off';                 // default ON
-  let vol = store.get(KEY_VOL) === null ? 100 : clampVol(store.get(KEY_VOL));  // default 100%
+  let vol = store.get(KEY_VOL) === null ? 250 : clampVol(store.get(KEY_VOL));  // default 250%
   let url = null;
   let audio = null;
   let ctx = null, gainNode = null, graphTried = false;
