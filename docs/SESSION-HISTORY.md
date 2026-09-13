@@ -668,9 +668,17 @@ Fixes after the redesign went live, all on `main`:
 - **Removed the offline-file download** from Settings.
 - **Added a "Music" switch** under "Menu sounds" (`RPMusic`, `assets/ui/music.js`).
   Default on; loops a background theme once its URL is set in
-  `art-manifest.json` ("music"); off persists across sessions (`rp_music`). No
-  track is wired yet -- a music artist is making the theme; the switch just
-  remembers the choice until then (nothing plays / no 404 in the meantime).
+  `art-manifest.json` ("music"); off persists across sessions (`rp_music`).
+
+#### Session 5f — music track wired
+
+The theme track (`assets/music/theme.mp3`, 3.5 MB) was dropped into the repo
+and `art-manifest.json` "music" set to the RELATIVE path `assets/music/theme.mp3`.
+The app serves it from its own origin (Render / the dev server), so no R2
+upload or sync is needed and it resolves in a blob-wrapped tab too (relative
+to the injected `<base>`). Verified on live production: it starts looping at
+the first user gesture and the Music switch stops it / persists off. To swap
+the track later, replace that file (or point "music" at any URL).
 
 ## 5. What was deleted, and why it must not come back
 
