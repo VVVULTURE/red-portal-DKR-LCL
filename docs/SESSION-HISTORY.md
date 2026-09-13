@@ -622,6 +622,37 @@ re-checks the list against a protected-keys guard before deleting and verifies
 a few keys are gone after. **Ledger #33.** Update this section to "done" once
 the owner has run it.
 
+#### Session 5d — redesign polish round (owner feedback)
+
+Fixes after the redesign went live, all on `main`:
+
+- **Single-item wheel spun forever.** The Apps tab (one item) never settled.
+  Movement used `opts.loop` (always on) while the renderer only wraps with 7+
+  items, so with 1-2 items `pos` climbed and the lone item flew off and never
+  came back. Added an effective `looping` getter (the same threshold the
+  renderer uses) and routed every movement/index/clamp path through it; small
+  lists now clamp at their ends. Ledger #34.
+- **Discord app wasn't listed.** Not a bug -- it was added straight to R2, and
+  `/api/apps` reads the manifest fast-path, which only refreshes on a sync.
+  The owner's sync rebuilt the manifest and it appears. (Anything added
+  directly to R2 needs a sync to show, and should also live in the local
+  folder or a future prune would treat it as an orphan.)
+- **Backgrounds too zoomed in / didn't adapt.** Layers were inset -4% + scaled
+  1.04 (~12% zoom). Now inset:0 (cover fits the viewport, adapts to any
+  size/aspect) + 1.05 scale, which is just enough overscan to hide the
+  parallax shift. Verified no edges at max deflection on 16:9, ultrawide and
+  tall.
+- **Smooth Ride barely moved** (was depth ~0.1 because its truck+flag are in
+  both the back and front layer). Raised to 0.5, with the two truck layers at
+  the same rate so they stay one truck and the gradient lags for depth.
+- **Cracked** gained the artist's new layer 1 (eye glow).
+- **Selected game/emulator title** enlarged (clamp up to 5rem).
+- **Artist icons landed in the wrong spot.** The art box switched to
+  auto-width when filled, collapsing around the icon. Icons now fill the fixed
+  placeholder square (land exactly where the box was); only wide logos grow it.
+- **Geometry Dash settings thumbnail** showed only layer 3 (it has no merged
+  `bg`). Thumbnails now composite all layers when there's no merged wallpaper.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
@@ -696,6 +727,7 @@ Read this before debugging. Several of these present identically.
 | 31 | **One mouse-wheel click moves the wheel two items (G502)** | Windows rounds a single detent to a pixel delta that maps to 2 steps, and can fire 2 events per click | A discrete notch (line mode or `|deltaY|>=48`) steps once by sign, debounced 45 ms; only trackpad pixel deltas accumulate |
 | 32 | **Position steering stops until the mouse is jiggled** | An idle-fade zeroed steering ~0.4 s after the last pointer move, so a cursor held still in the steer zone stopped the wheel | Removed the idle-fade; steering is a pure function of cursor position, applied every frame while in the column |
 | 33 | **Repo/infra files pile up in the R2 bucket** | The sync walks the whole folder and uploads everything; the site never fetches most of it from R2 (index.html/server.js from Render, redproxy from the repo, a stray Steam tool at root `_framework/`) | Root-anchored `EXCLUDE_PATHS`/`EXCLUDE_PATH_PREFIXES` in `sync_to_r2.py` (NOT by basename -- Terraria has a real `_framework/`), plus a one-time `r2-cleanup.mjs` deleting the 138 already-orphaned objects |
+| 34 | **A wheel with 1-2 items spins forever and never settles** (the Apps tab) | Movement used `opts.loop` (always true) but the renderer only draws a wrapped copy with 7+ items, so `pos` climbed while the lone item was drawn once and flew off | An effective `looping` getter = the renderer's own wrap threshold, used by every movement/index/clamp path; small lists clamp at their ends |
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
 
 ---

@@ -82,7 +82,7 @@ order; 1 = full parallax, 0 = pinned). The opaque back layer moves most -- it
 is oversized (`inset: -4%`) so nothing shows behind it; the mid subject about
 half; a full-frame haze barely. The pointer sets a target, a single rAF loop
 eases toward it and adds a slow drift so a still scene still breathes.
-Amplitude is ±22 px horizontally at full deflection. Touch devices and
+Amplitude is ±22 px horizontally at full deflection. Layers are inset:0 and `background-size: cover` (so they adapt to any screen size/aspect) with a 1.05 scale -- just enough overscan to hide the shift, no more zoom than necessary, and no visible edge at any deflection. Touch devices and
 `prefers-reduced-motion` get no parallax; reduced motion also gets no motes.
 
 `applyTheme` no longer fetches the flat wallpaper when `layers` exist. If
@@ -131,8 +131,9 @@ a target that `pos` eases toward (`tau` 0.11 s) or adds velocity:
 | tap / click on the selected item, Enter, Space | **activate** |
 | tap / click on another item | select it (never activates) |
 
-Selection and activation are never the same gesture. The wheel loops
-(short way round on `select`). Ticks play on every integer crossing.
+Selection and activation are never the same gesture. The wheel loops **when it has enough items to actually wrap** (7+ with the
+current geometry, via the `looping` getter); a 1-2 item list clamps at its
+ends instead of spinning the lone item off-screen (short way round on `select`). Ticks play on every integer crossing.
 
 Traps found while testing, all fixed, worth knowing:
 
