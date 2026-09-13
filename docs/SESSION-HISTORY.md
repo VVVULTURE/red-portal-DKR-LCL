@@ -616,8 +616,8 @@ next sync. Both the repo copy and the sync-folder copy were updated; committed
 **The deletion itself could not be run from here:** the sandbox blocks bulk
 cloud-storage deletes ("Cloud Storage Mass Delete") on both Bash and
 PowerShell. Handed the owner a self-contained, guarded script
-(`C:\claude-code\Red Portal UI2-cleanup.mjs` + `r2-delete.json`, built
-from the live listing) to run once: `node "...2-cleanup.mjs" --yes`. It
+(`C:\claude-code\Red Portal UI\r2-cleanup.mjs` + `r2-delete.json`, built
+from the live listing) to run once: `node "...\r2-cleanup.mjs" --yes`. It
 re-checks the list against a protected-keys guard before deleting and verifies
 a few keys are gone after. **Ledger #33.** Update this section to "done" once
 the owner has run it.
