@@ -714,7 +714,7 @@ reaches 2.0 at 200% and persists.
   bucket (every real object -> URL; dropped the dead key; verified same game
   counts 46/56/2, FNAE -> gamefile) -- fixes it at rest for everyone; (2) the
   Rescan button, which lists live and so can never be fooled by a stale key.
-  Tools: `C:\claude-code\Red Portal UIebuild-manifest.mjs` (dry-run, then
+  Tools: `C:\claude-code\Red Portal UI\rebuild-manifest.mjs` (dry-run, then
   `--yes` to back up + upload; backup at `manifest.backup.json`).
 
 **Note on the manifest:** it can drift whenever files are changed DIRECTLY in
