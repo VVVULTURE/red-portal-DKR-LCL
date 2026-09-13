@@ -15,3 +15,10 @@ skipped.log
 # Editor/OS noise
 .DS_Store
 Thumbs.db
+
+# Theme depth layers live on R2 (uploaded from the sync folder). Local
+# copies under assets/themes/<Folder>/ are for testing only.
+assets/themes/*/
+
+# local playwright link for tools/ui-harness
+node_modules_pw/

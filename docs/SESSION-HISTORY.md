@@ -549,6 +549,32 @@ The layers also reach R2 only through that sync, which is why the redesign
 sits on a branch rather than `main`: pushing it first would show flat
 wallpapers until the sync ran.
 
+#### Session 5b — redesign refinements (owner feedback)
+
+After testing the redesign locally the owner asked for four changes; all done
+on `ui-redesign`, still not deployed:
+
+- **Mouse-wheel double-step (G502) fixed.** A discrete notch is one step by
+  sign, debounced 45 ms; trackpad pixel deltas still accumulate. Ledger #31.
+- **Steering no longer stops when the mouse is held still.** The idle-fade
+  that killed a parked cursor was removed; position alone drives it now.
+  Ledger #32.
+- **Settings is now a wheel tab** (⚙️), a category-rail panel built by
+  `assets/ui/settings.js`, styled like a real settings menu. The old header
+  gear + side panel are hidden. See `UI-REDESIGN.md` §6b.
+- **The intro GIF + audio are gone**, replaced by a ~0.8 s branded logo wash
+  that dissolves into the scene. `redintro.gif`/`redportalintroaudio.mp3` are
+  no longer requested by the page (still on R2, unused).
+
+A local-only convenience also landed: `art-manifest.json` gains
+`layerBaseLocal` and `art.js` uses it when the page is on localhost, so a
+checkout with the layer folders copied into `assets/themes/<Folder>/`
+(git-ignored) shows real parallax before the layers are on R2.
+
+Re-verified headless: all inputs incl. the two fixes, the Settings tab
+(category switch, theme apply+persist, sound toggle+persist, offline button),
+the intro timing, and a full regression -- 0 console errors.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
@@ -620,6 +646,8 @@ Read this before debugging. Several of these present identically.
 | 28 | **Emulation lists every ROM twice; `/api/emulation` returns 196** | The Sept 12 sort uploaded the ROMs into console folders but the prune was scoped to `Games/ Testing/ Apps/`, so the 98 flat `Emulation/*.zip` originals are still real objects (confirmed: `cf-cache-status: MISS`, dated Aug 24). Emulation is a live bucket listing, not manifest-backed, so it sees both | `--prune --prune-prefix Emulation/` (§8). Not run yet -- needs the owner's credentials |
 | 29 | **After a scoped prune the manifest delists every bucket-only object outside the pruned prefixes** | The post-prune rewrite in `sync_to_r2.py` rebuilt the manifest from local files + keep list instead of the surviving bucket -- the same class as #18, one prune later. This is why the manifest had 98 Emulation keys while the bucket had 196 | Rewrite from (remote minus deleted) + local + keep |
 | 30 | **Keyboard navigation on the wheel lands on the wrong item when the mouse is parked over it** | Chrome fires `pointerover` when content animates under a still cursor; hover-select on that event re-targeted the wheel mid-ease | Hover-select moved into `pointermove` and only on a real change of coordinates |
+| 31 | **One mouse-wheel click moves the wheel two items (G502)** | Windows rounds a single detent to a pixel delta that maps to 2 steps, and can fire 2 events per click | A discrete notch (line mode or `|deltaY|>=48`) steps once by sign, debounced 45 ms; only trackpad pixel deltas accumulate |
+| 32 | **Position steering stops until the mouse is jiggled** | An idle-fade zeroed steering ~0.4 s after the last pointer move, so a cursor held still in the steer zone stopped the wheel | Removed the idle-fade; steering is a pure function of cursor position, applied every frame while in the column |
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
 
 ---

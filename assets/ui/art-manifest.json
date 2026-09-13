@@ -13,9 +13,13 @@
     "           is used, and when that is absent too, a placeholder.",
     "  sfx    : tick | select | back | hover -> audio file URL, replacing the",
     "           synthesized sound of the same name.",
-    "  layerBase : where theme layer folders live."
+    "  layerBase : where theme layer folders live.",
+    "  layerBaseLocal : used instead when the page is on localhost /",
+    "           127.0.0.1 -- copy the theme folders into assets/themes/",
+    "           of the checkout (git-ignored) to test before syncing."
   ],
   "layerBase": "https://assets.redportal.dpdns.org/assets/themes/",
+  "layerBaseLocal": "assets/themes/",
   "tabs": {},
   "games": {},
   "sfx": {}

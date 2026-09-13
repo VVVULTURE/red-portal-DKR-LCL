@@ -51,6 +51,7 @@ intact underneath.
 | `assets/ui/sfx.js` | `RPSfx` -- synthesized tick / select / back, replaceable by files, `rp_sfx` preference |
 | `assets/ui/art.js` | `RPArt` -- resolves every image from `art-manifest.json`, probes `assets/icons/`, builds placeholders |
 | `assets/ui/app.js` | the controller: views, transitions, history, keyboard, search, chrome, theme layers |
+| `assets/ui/settings.js` | builds the Settings panel (theme grid, sound, offline copy) from `RedPortal.THEMES`/`RPSfx` |
 | `assets/ui/wheel.css` | all new styling; design tokens still come from `index.html` |
 | `assets/ui/art-manifest.json` | the artwork registry (§4) |
 | `tools/ui-harness/` | headless tests; see its README |
@@ -122,9 +123,10 @@ a target that `pos` eases toward (`tau` 0.11 s) or adds velocity:
 | --- | --- |
 | ↑ ↓ (also ← →, PageUp/Down, Home/End) | step |
 | on-screen arrows | step; hold repeats |
-| scroll wheel / trackpad | step per 70 px |
+| scroll wheel (mouse) | one detent = one step, by sign not magnitude, debounced 45 ms |
+| trackpad | accumulates, step per 70 px |
 | mouse **inside the dead band** (±42 % of the column, covers the two neighbours) | moving onto a neighbour selects it |
-| mouse **outside the dead band** | steers: velocity grows with distance, ramps in over 0.4 s, fades 0.4 s after the mouse stops |
+| mouse **outside the dead band** | steers: velocity grows with distance, ramps in over 0.4 s. **Continuous while the cursor sits there** -- it does not need the mouse to keep moving; it stops when the cursor returns to the dead band or leaves the column |
 | touch drag | follows the finger, flings with inertia |
 | tap / click on the selected item, Enter, Space | **activate** |
 | tap / click on another item | select it (never activates) |
@@ -132,7 +134,7 @@ a target that `pos` eases toward (`tau` 0.11 s) or adds velocity:
 Selection and activation are never the same gesture. The wheel loops
 (short way round on `select`). Ticks play on every integer crossing.
 
-Two traps found while testing, both fixed, worth knowing:
+Traps found while testing, all fixed, worth knowing:
 
 - **Chrome fires `pointerover` when an item slides under a parked cursor.**
   Hover-select on that event hijacked keyboard navigation (the wheel eased
@@ -142,6 +144,15 @@ Two traps found while testing, both fixed, worth knowing:
   off-wheel item visible, stacked at the poles; the Back button leaked onto
   the home view the same way. Every `display` rule now has a `[hidden]`
   partner.
+- **A ratcheted mouse wheel double-stepped.** Windows rounds one G502 detent
+  to a pixel delta that mapped to two items, and sometimes fires two events
+  per click. A discrete notch (line mode, or `|deltaY| >= 48`) is now one
+  step by its sign, debounced 45 ms; only trackpad pixel deltas accumulate.
+- **Position steering stopped when the mouse was still.** An idle-fade meant
+  to stop runaway spin also killed a cursor parked in the steer zone, so the
+  wheel halted until you jiggled the mouse. Removed: steering is now purely a
+  function of cursor position and runs every frame while the cursor is in the
+  column.
 
 ---
 
@@ -149,8 +160,8 @@ Two traps found while testing, both fixed, worth knowing:
 
 Three views: **home** (main wheel + section preview), **list** (a section's
 items on a wheel + the selected game's art; Games, Testing, Apps, Emulation)
-and **panel** (every other section, unchanged, in a glass frame; Requests,
-Report, Executor, Links, Tutorials, Movies, Credits, Red Proxy).
+and **panel** (every other section in a glass frame; Requests, Report,
+Executor, Links, Tutorials, Movies, Credits, **Settings**, Red Proxy).
 
 Forward = the current view scales up and fades while the background zooms;
 the new one arrives from slightly small. Back reverses it. 420 ms out, 460 ms
@@ -163,6 +174,25 @@ throw (the Cubefield finding in `SESSION-HISTORY.md`). Typing in a list view
 focuses the search box, which filters the wheel; Escape clears it first.
 
 ---
+
+## 6b. Settings, and the intro
+
+**Settings is a wheel tab** (⚙️), not a slide-out. Activating it opens a panel
+laid out like a real settings menu -- a category rail (Appearance / Sound &
+Motion / About & Data) beside a pane -- in Red Portal's own styling, modelled
+loosely on the Interstellar proxy's settings screen. `assets/ui/settings.js`
+builds it at runtime from `RedPortal.THEMES` (a theme-card grid with real
+wallpaper thumbnails) and `RPSfx` (the sound toggle); "Download offline copy"
+clicks the original, now-hidden side-panel button. The old header gear and its
+side panel are hidden by `wheel.css`, not deleted -- settings.js still needs
+that button. Add a settings row by editing `settings.js`; the categories are
+one `CATS` array.
+
+**The intro is a fast branded wash**, no GIF and no audio. A solid cover with
+the logo fades in (~0.2 s), holds a beat, then fades out (~0.44 s) while the
+scene and wheel animate in beneath it -- about 0.8 s end to end, click/tap to
+skip, and nothing at all under reduced motion. The old `redintro.gif` and
+`redportalintroaudio.mp3` are no longer requested.
 
 ## 7. Decisions made with the owner (2026-09-13)
 

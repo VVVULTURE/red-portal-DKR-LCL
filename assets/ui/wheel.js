@@ -33,9 +33,9 @@ window.RPWheel = (function () {
     steerMax:     4.2,    // items per second at full deflection
     steerDead:    0.42,   // fraction of the zone half-height that does not steer (covers the two neighbours, which hover-select instead)
     steerCurve:   1.7,
-    steerIdleMs:  380,    // steering fades out this long after the mouse stops
     steerRampMs:  420,    // steering builds up over this long, so entering the column does not jerk
-    scrollPx:     70,     // wheel delta per item
+    scrollPx:     70,     // trackpad pixels per item (small-delta accumulation)
+    notchGapMs:   45,     // min time between mouse-wheel detents (kills one-click-two-steps)
     flingFriction: 4.5,   // 1/s -- higher stops sooner
     flingMin:     0.35,   // items/s below which a fling snaps to the nearest item
     holdDelayMs:  360,    // arrow buttons: hold-to-repeat
@@ -63,7 +63,7 @@ window.RPWheel = (function () {
       this._raf = 0;
       this._last = 0;
       this._steer = 0;       // -1..1 current deflection
-      this._steerAt = 0;     // timestamp of last steering pointer move
+      this._notchAt = 0;     // last mouse-wheel detent, for debouncing
       this._steerStart = 0;  // when the current steering run began
       this._mouseAt = 0;     // last real mouse movement over the zone
       this._mx = -1; this._my = -1;
@@ -212,14 +212,17 @@ window.RPWheel = (function () {
       const n = this.items.length;
 
       if (this.mode === 'steer') {
-        // Steering strength fades once the mouse stops moving, so parking
-        // the cursor high on the wheel does not spin it forever.
-        const idle = now - this._steerAt;
-        const fade = idle < CFG.steerIdleMs ? 1 : Math.max(0, 1 - (idle - CFG.steerIdleMs) / 300);
+        // Position steering: while the cursor sits in the column past the
+        // dead band, the wheel keeps turning at a speed set by how far the
+        // cursor is from centre -- it does NOT depend on the mouse still
+        // moving. (An earlier idle-fade stopped a parked cursor after a
+        // fraction of a second, which read as the wheel randomly halting
+        // until you jiggled the mouse.) It stops when the cursor returns to
+        // the dead band (_steer 0) or leaves the column (pointerleave).
         const ramp = Math.min(1, (now - this._steerStart) / CFG.steerRampMs);
-        const v = this._steer * CFG.steerMax * fade * ramp * ramp;
+        const v = this._steer * CFG.steerMax * ramp * ramp;
         this.vel = v;
-        if (fade <= 0 || this._steer === 0) {
+        if (this._steer === 0) {
           this.mode = 'ease';
           this.target = Math.round(this.pos);
         } else {
@@ -322,7 +325,6 @@ window.RPWheel = (function () {
         const r = zone.getBoundingClientRect();
         const dy = (e.clientY - (r.top + this.frontY)) / (r.height / 2);
         const mag = Math.abs(dy);
-        this._steerAt = performance.now();
         if (mag <= CFG.steerDead) {
           this._steer = 0;
           if (this.mode === 'steer') { this.mode = 'ease'; this.target = Math.round(this.pos); }
@@ -368,7 +370,23 @@ window.RPWheel = (function () {
       zone.addEventListener('wheel', e => {
         if (!this.enabled) return;
         e.preventDefault();
-        this._scrollAcc += e.deltaMode === 1 ? e.deltaY * 20 : e.deltaY;
+        // A ratcheted mouse wheel reports one detent as a line delta or a
+        // large pixel jump, and Windows sometimes rounds a single G502 click
+        // to a value that would map to two steps. So a discrete notch is ONE
+        // step by its sign, never by its magnitude, and two events from one
+        // physical click are debounced away. A trackpad instead streams many
+        // small pixel deltas -- those still accumulate.
+        const discrete = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 48;
+        if (discrete) {
+          const dir = Math.sign(e.deltaY);
+          if (dir && performance.now() - this._notchAt >= CFG.notchGapMs) {
+            this._notchAt = performance.now();
+            this.step(dir);
+          }
+          this._scrollAcc = 0;
+          return;
+        }
+        this._scrollAcc += e.deltaY;
         const steps = Math.trunc(this._scrollAcc / CFG.scrollPx);
         if (steps !== 0) { this._scrollAcc -= steps * CFG.scrollPx; this.step(steps); }
       }, { passive: false });

@@ -1223,9 +1223,11 @@ footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg);
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 45%, var(--accent-glow) 0%, transparent 62%),
+    var(--bg);
   opacity: 1;
-  transition: opacity 0.6s ease;
+  transition: opacity 0.44s ease;   /* must match FADE_MS in the intro script */
 }
 
 #intro-overlay.fade-out {
@@ -1233,13 +1235,16 @@ footer {
   pointer-events: none;
 }
 
-#intro-overlay #intro-gif {
-  width: 100vw;
-  height: 100vh;
-  object-fit: cover;
-  user-select: none;
-  -webkit-user-drag: none;
+#intro-overlay #intro-logo {
+  width: clamp(120px, 18vw, 220px);
+  height: auto;
+  filter: drop-shadow(0 0 26px var(--accent-glow));
+  opacity: 0;
+  transform: scale(0.82);
+  transition: opacity 0.2s ease, transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
 }
+#intro-overlay.intro-in #intro-logo { opacity: 1; transform: scale(1); }
+#intro-overlay.fade-out #intro-logo { transform: scale(1.08); }
 
 /* Non-JS fallback: if scripts are blocked, the inline script can't
    remove the overlay. Also belt-and-braces for reduced-motion users. */
@@ -1409,78 +1414,53 @@ footer {
   </style>
   <!-- The console-style presentation layer (wheel, scene, transitions).
        Everything above stays as it was; assets/ui/ only adds to it. -->
-  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260913a" />
+  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260913b" />
 </head>
 <body>
 
 <!-- ═══════════════════════════════
-     INTRO OVERLAY
-     Plays Red-Intro2.gif once on page load, then fades and removes itself.
-     Kept inline and non-deferred so it runs the instant the overlay is
-     parsed — no race with the deferred script.js.
+     INTRO — a quick branded wash into the site. No GIF, no audio: a
+     solid cover with the logo that fades out fast while the scene and
+     wheel animate in beneath it. Inline and non-deferred so it paints
+     before anything else and never flashes the UI first.
 ═══════════════════════════════ -->
-<div id="intro-overlay" aria-hidden="true" style="cursor:pointer;" title="Click to skip">
-  <img id="intro-gif" src="https://assets.redportal.dpdns.org/assets/intro/redintro.gif" alt="" />
-  <audio id="intro-audio" src="https://assets.redportal.dpdns.org/assets/intro/redportalintroaudio.mp3" preload="auto" muted></audio>
+<div id="intro-overlay" aria-hidden="true">
+  <img id="intro-logo" src="https://assets.redportal.dpdns.org/assets/logo/logo.png" alt="Red Portal" />
 </div>
 <script>
   (function () {
     var overlay = document.getElementById('intro-overlay');
     if (!overlay) return;
 
-    /* Skip the intro entirely for users who prefer reduced motion.
-       Still mark the intro as "done" so the ad overlay shows. */
+    function done() {
+      window.__introDone = true;
+      if (typeof window.__onIntroDone === 'function') window.__onIntroDone();
+    }
+
+    /* Reduced motion: no wash at all. */
     if (window.matchMedia &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       overlay.remove();
-      window.__introDone = true;
-      if (typeof window.__onIntroDone === 'function') window.__onIntroDone();
+      done();
       return;
     }
 
-    /* GIF: 77 frames, 3080 ms total.
-       Audio: 3213 ms — both stop together via dismiss().
-       Hold briefly on the final frame, then fade and remove. */
-    var PLAY_MS = 2400;
-    var HOLD_MS = 255;
-    var FADE_MS = 600;   /* must match the CSS transition duration */
-
-    var audio = document.getElementById('intro-audio');
-
-    /* Start audio muted — browsers allow muted autoplay without a user gesture.
-       Once playback has started, immediately unmute so the audio is heard. */
-    if (audio) {
-      audio.muted = true;
-      var playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.then(function () {
-          audio.muted = false;
-        }).catch(function () {});
-      }
-    }
+    var HOLD_MS = 380;   /* logo lands (~200ms), holds a beat, then goes */
+    var FADE_MS = 440;   /* must match the CSS transition duration */
 
     var dismissed = false;
     function dismiss() {
-      if (dismissed) return;   /* click-to-skip + timer can both fire */
+      if (dismissed) return;
       dismissed = true;
-      /* Stop audio immediately, in sync with the fade-out. */
-      if (audio) {
-        audio.pause();
-        audio.currentTime = 0;
-      }
       overlay.classList.add('fade-out');
-      setTimeout(function () {
-        overlay.remove();
-        /* Tell the ad overlay the intro is finished. */
-        window.__introDone = true;
-        if (typeof window.__onIntroDone === 'function') window.__onIntroDone();
-      }, FADE_MS);
+      done();   /* let the wheel start sliding in DURING the fade, not after */
+      setTimeout(function () { overlay.remove(); }, FADE_MS);
     }
 
-    /* Click anywhere on the overlay to skip */
-    overlay.addEventListener('click', dismiss);
-
-    setTimeout(dismiss, PLAY_MS + HOLD_MS);
+    overlay.addEventListener('click', dismiss);   /* tap to skip */
+    /* Kick the logo's own entrance on the next frame, then dismiss. */
+    requestAnimationFrame(function () { overlay.classList.add('intro-in'); });
+    setTimeout(dismiss, HOLD_MS);
   })();
 </script>
 
@@ -1538,6 +1518,7 @@ footer {
          also in script.js) instead of switching to an in-page section.
          The href is a plain fallback for right-click-open-in-new-tab /
          accessibility. -->
+    <a href="#settings"             data-section="settings">⚙️ Settings</a>
     <a href="#redproxy" id="navRedProxy" class="nav-hidden">🕵️ Red Proxy</a>
   </nav>
 
@@ -1962,6 +1943,22 @@ footer {
             style="max-width:100%;border-radius:8px;border:1px solid var(--border);"
           />
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── SETTINGS ──────────────────────────────────────────────────────
+       A wheel tab (⚙️ Settings) that opens this panel. Layout is a
+       category rail + panes, in Red Portal's own styling. The whole thing
+       is built at runtime by assets/ui/settings.js from RedPortal.THEMES
+       and RPSfx, so there is no second copy of the theme list to keep in
+       sync. The old header gear + slide-out side panel are hidden by
+       wheel.css -- their functions live here now. -->
+  <section id="settings" class="section" aria-label="Settings">
+    <div class="section-inner">
+      <h2>⚙️ Settings</h2>
+      <div class="card set-card" id="settingsRoot">
+        <p style="color:var(--text-muted);font-size:.9rem;">Loading settings…</p>
       </div>
     </div>
   </section>
@@ -3455,10 +3452,11 @@ footer {
      controller last. They are plain scripts so a blob-wrapped copy of this
      page (the launcher case, which injects <base>) resolves them the same
      way it resolves /api/*. -->
-<script src="assets/ui/wheel.js?v=20260913a"></script>
-<script src="assets/ui/scene.js?v=20260913a"></script>
-<script src="assets/ui/sfx.js?v=20260913a"></script>
-<script src="assets/ui/art.js?v=20260913a"></script>
-<script src="assets/ui/app.js?v=20260913a"></script>
+<script src="assets/ui/wheel.js?v=20260913b"></script>
+<script src="assets/ui/scene.js?v=20260913b"></script>
+<script src="assets/ui/sfx.js?v=20260913b"></script>
+<script src="assets/ui/art.js?v=20260913b"></script>
+<script src="assets/ui/settings.js?v=20260913b"></script>
+<script src="assets/ui/app.js?v=20260913b"></script>
 </body>
 </html>

@@ -52,6 +52,7 @@
     tutorials: 'Short videos on getting the most out of the portal.',
     movies:    'Films from the Movies folder.',
     credits:   'The people who made this.',
+    settings:  'Themes, sound, and your offline copy.',
     redproxy:  'Browse the web through Red Portal.',
   };
 

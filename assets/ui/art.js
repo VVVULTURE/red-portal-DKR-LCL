@@ -20,7 +20,16 @@ window.RPArt = (function () {
 
   const ready = fetch('assets/ui/art-manifest.json', { cache: 'no-cache' })
     .then(r => (r.ok ? r.json() : null))
-    .then(m => { if (m && typeof m === 'object') manifest = Object.assign(manifest, m); })
+    .then(m => {
+      if (m && typeof m === 'object') manifest = Object.assign(manifest, m);
+      // Local testing: the layer folders are served off this checkout's
+      // own disk (assets/themes/<Folder>/) instead of R2, which may not
+      // have them yet. Only ever applies on a loopback host.
+      const host = location.hostname;
+      if (manifest.layerBaseLocal && (host === 'localhost' || host === '127.0.0.1')) {
+        manifest.layerBase = manifest.layerBaseLocal;
+      }
+    })
     .catch(() => {})
     .then(() => manifest);
 
