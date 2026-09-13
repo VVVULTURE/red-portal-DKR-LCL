@@ -740,6 +740,26 @@ local folder.
   Regenerate with `C:\claude-code\Red Portal UI\gather-assets.mjs` then
   `gen-asset-list.mjs` whenever the game list changes.
 
+#### Session 5j — renamed misnamed icons
+
+Four icons on R2 had names that didn't match the filename the site requests
+(`assets/icons/<folder-or-slug>.png`), so their games showed a placeholder
+despite the art existing. Renamed (copy to the correct name + delete the old):
+`Amazing-Strange-Rope-Police.png` → `ASRP.png`, `Blazing Lazers.png` →
+`Blazing-Lazers.png`, `Super Mario Bros. 3.png` → `Super-Mario-Bros-3.png`,
+`YOUTUBE + YT MUSIC.png` → `Youtube + YT Music.png` (and deleted the identical
+duplicate `Youtube.png`). Tool: `C:\claude-code\Red Portal UI\rename-icons.mjs`
+(dry-run, then `--yes`). Confirmed at the R2 source; note Cloudflare's 7-day
+edge cache can keep serving a deleted old name for a while (harmless — nothing
+references it).
+
+Left alone (redundant leftovers, not renames — their real icons already exist):
+`Dadish.png` (real ones are `Dadish-1/2/3.png`) and `Five-Nights-At-Epsteins.png`
+(real one is `FNAE.png`).
+
+`asset-list.md` regenerated and now also covers **Apps**; every entry is the
+exact filename the artist should use. 215 icons total, 193 still needed.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
