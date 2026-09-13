@@ -575,6 +575,53 @@ Re-verified headless: all inputs incl. the two fixes, the Settings tab
 (category switch, theme apply+persist, sound toggle+persist, offline button),
 the intro timing, and a full regression -- 0 console errors.
 
+#### Session 5c — R2 bucket cleanup (repo cruft)
+
+**Asked for:** delete everything in the R2 bucket that Red Portal, the
+bucket, or a script does not use (the owner's example: redproxy, which the
+site serves from the repo, not R2).
+
+The sync walks the whole folder and uploads everything, so the bucket had
+accumulated repo/infra files the site never fetches from R2. Listed the
+bucket authoritatively (44,338 objects) and categorised. **Verified unused
+and safe to delete (138 objects, 211 MB):**
+
+- `redproxy/` (12) — served from the repo by `server.js`, never from R2
+- root `_framework/` (104) — a **DepotDownloader/SteamKit2 .NET tool**, not a
+  game, swept in from a local folder
+- root repo/dev files (16): `index.html`, `server.js`, `package*.json`,
+  `Dockerfile`, `docker-compose.yml`, the git/docker ignores, `.gitattributes`,
+  `game-overrides.json` (read off local disk, not R2), `Red Portal
+  (Offline).html` (the download comes from raw.githubusercontent), the sync
+  `.bat`, `sync_to_r2.py`, `sync_to_r2.py.bak`
+- `.github/` (1); `assets/intro/` (2, the retired intro gif+audio);
+  `assets/tutorials/` (2, the tab loads these from the Render origin);
+  `assets/HELP_BRING_BACK.png` (1, referenced nowhere)
+
+**The catch that nearly caused damage:** `_framework` is ALSO
+`Testing/Terraria/public/_framework/` (109 objects) — Terraria is a real
+Blazor/.NET WASM game that needs it. So the delete is by root-anchored path,
+never by basename, and the sync exclusion is anchored the same way. `manifest.json`
+and all Games/Testing/Apps/Movies/Emulation and `assets/{icons,themes,logo,
+emulator}` are kept. `assets/emulator/` (3) was **kept out of caution** — it
+looks unused (the player loads relative to the Render origin) but the emulator
+is load-bearing; confirm before removing it.
+
+**`sync_to_r2.py` now excludes all of the above** (`EXCLUDE_PATHS` /
+`EXCLUDE_PATH_PREFIXES`, root-anchored) so they are neither re-uploaded nor
+re-added to the manifest -- without this the cleanup would undo itself on the
+next sync. Both the repo copy and the sync-folder copy were updated; committed
+`0ea16e1`.
+
+**The deletion itself could not be run from here:** the sandbox blocks bulk
+cloud-storage deletes ("Cloud Storage Mass Delete") on both Bash and
+PowerShell. Handed the owner a self-contained, guarded script
+(`C:\claude-code\Red Portal UI2-cleanup.mjs` + `r2-delete.json`, built
+from the live listing) to run once: `node "...2-cleanup.mjs" --yes`. It
+re-checks the list against a protected-keys guard before deleting and verifies
+a few keys are gone after. **Ledger #33.** Update this section to "done" once
+the owner has run it.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
@@ -648,6 +695,7 @@ Read this before debugging. Several of these present identically.
 | 30 | **Keyboard navigation on the wheel lands on the wrong item when the mouse is parked over it** | Chrome fires `pointerover` when content animates under a still cursor; hover-select on that event re-targeted the wheel mid-ease | Hover-select moved into `pointermove` and only on a real change of coordinates |
 | 31 | **One mouse-wheel click moves the wheel two items (G502)** | Windows rounds a single detent to a pixel delta that maps to 2 steps, and can fire 2 events per click | A discrete notch (line mode or `|deltaY|>=48`) steps once by sign, debounced 45 ms; only trackpad pixel deltas accumulate |
 | 32 | **Position steering stops until the mouse is jiggled** | An idle-fade zeroed steering ~0.4 s after the last pointer move, so a cursor held still in the steer zone stopped the wheel | Removed the idle-fade; steering is a pure function of cursor position, applied every frame while in the column |
+| 33 | **Repo/infra files pile up in the R2 bucket** | The sync walks the whole folder and uploads everything; the site never fetches most of it from R2 (index.html/server.js from Render, redproxy from the repo, a stray Steam tool at root `_framework/`) | Root-anchored `EXCLUDE_PATHS`/`EXCLUDE_PATH_PREFIXES` in `sync_to_r2.py` (NOT by basename -- Terraria has a real `_framework/`), plus a one-time `r2-cleanup.mjs` deleting the 138 already-orphaned objects |
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
 
 ---
