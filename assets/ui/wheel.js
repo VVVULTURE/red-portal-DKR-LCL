@@ -69,6 +69,7 @@ window.RPWheel = (function () {
       this._mx = -1; this._my = -1;
       this._scrollAcc = 0;
       this._drag = null;
+      this._spin = null;
       this._hold = null;
       this._settleTimer = 0;
 
@@ -174,6 +175,36 @@ window.RPWheel = (function () {
       if (i >= 0) this.select(i);
     }
 
+    /** Animated wheel-of-fortune spin to item i: a quick run that overshoots
+     *  slightly then settles back. Selects, never activates. */
+    spinTo(i) {
+      const n = this.items.length;
+      if (!n || !this.enabled) return;
+      let dest;
+      if (this.looping) {
+        const base = Math.round(this.pos);
+        let d = ((i - base) % n + n) % n;
+        if (d > n / 2) d -= n;        // nearest copy
+        dest = base + d;
+      } else {
+        dest = clamp(i, 0, n - 1);
+      }
+      const dist = Math.abs(dest - this.pos);
+      if (dist < 0.001) { this._setTarget(dest); return; }
+      const dir = dest >= this.pos ? 1 : -1;
+      const over = this.looping ? dest + dir * 0.5 : clamp(dest + dir * 0.5, -0.5, n - 0.5);
+      this._spin = {
+        from: this.pos,
+        over,
+        to: dest,
+        start: performance.now(),
+        d1: clamp(600 + dist * 45, 700, 1600),  // longer spin for a farther pick
+        d2: 300,                                  // settle-back
+      };
+      this.mode = 'spin';
+      this.settled = false;
+    }
+
     /** Jump without animation (used when a view first appears). */
     snapTo(i) {
       const n = this.items.length;
@@ -248,6 +279,25 @@ window.RPWheel = (function () {
         if (Math.abs(this.vel) < CFG.flingMin) {
           this.mode = 'ease';
           this.target = Math.round(this.pos);
+        }
+      } else if (this.mode === 'spin') {
+        // Wheel-of-fortune: a fast decelerating run PAST the target, then a
+        // small settle back onto it. (Used by "Pick a Random Game".)
+        const sp = this._spin;
+        const el = now - sp.start;
+        if (REDUCED) { this.pos = sp.to; this.target = sp.to; this.mode = 'ease'; }
+        else if (el < sp.d1) {
+          const t = el / sp.d1;
+          const e = 1 - Math.pow(1 - t, 3);            // easeOutCubic into the overshoot
+          this.pos = sp.from + (sp.over - sp.from) * e;
+        } else if (el < sp.d1 + sp.d2) {
+          const t = (el - sp.d1) / sp.d2;
+          const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;  // easeInOutQuad back
+          this.pos = sp.over + (sp.to - sp.over) * e;
+        } else {
+          this.pos = sp.to;
+          this.target = sp.to;
+          this.mode = 'ease';                          // next frame settles + emits
         }
       } else if (this.mode === 'ease') {
         const d = this.target - this.pos;

@@ -313,6 +313,10 @@ kbd {
   background: radial-gradient(ellipse at center, var(--accent-glow) 0%, transparent 70%);
   filter: blur(4px);
 }
+/* While the icon is still loading the box is empty -- don't draw the ground
+   glow under nothing (and never flash the placeholder for a game that has an
+   icon; that is handled in app.js). */
+.pv--game .pv-art:empty::after { display: none; }
 .pv-art-img { max-width: 100%; max-height: 100%; filter: drop-shadow(0 0 18px var(--accent-glow)) drop-shadow(0 10px 20px rgba(0,0,0,0.6)); animation: art-in 0.4s var(--ease-out); }
 /* An artist icon fills the SAME square the placeholder occupied, so it lands
    exactly where the "artwork pending" box was -- not shrunk to its own size
@@ -559,6 +563,31 @@ kbd {
   letter-spacing: 0.08em;
   color: var(--accent);
 }
+/* "Pick A Random Game" -- sits just under the search bar / list count. */
+.rp-random {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  background: rgba(14, 14, 22, 0.72);
+  border: 1px solid var(--border-hot);
+  color: var(--accent);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.48rem 0.9rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: color var(--t-std), border-color var(--t-std), box-shadow var(--t-std), transform var(--t-fast), background var(--t-std);
+}
+.rp-random:hover { color: #fff; background: var(--accent); border-color: var(--accent); box-shadow: var(--glow-md); transform: translateY(-1px); }
+.rp-random:active { transform: scale(0.96); }
+.rp-random:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* only meaningful in a list view with more than one item */
+.stage-view.is-empty .rp-random { display: none; }
 .stage-view.is-empty .wh-bar { opacity: 0; }
 
 /* launch flash */
@@ -846,7 +875,8 @@ body.rp-open #theme-bg { display: none; }
   .wh-item { font-size: 1.1rem; }
   .wh-item .wh-label { max-width: 60vw; }
   .wh-arrow { width: 42px; height: 42px; }
-  .list-head { top: -1.4rem; right: 1rem; display: flex; gap: 0.6rem; align-items: baseline; }
+  .list-head { top: -1.4rem; left: 1rem; right: 1rem; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .rp-random { margin-top: 0; padding: 0.34rem 0.6rem; font-size: 0.72rem; }
   .list-title { font-size: 0.72rem; }
   .list-count { font-size: 0.7rem; }
   header { padding: 0 var(--sp-md); }

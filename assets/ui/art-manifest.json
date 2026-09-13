@@ -13,6 +13,9 @@
     "           is used, and when that is absent too, a placeholder.",
     "  sfx    : tick | select | back | hover -> audio file URL, replacing the",
     "           synthesized sound of the same name.",
+    "  music  : URL of the looping background theme. When set, it plays for",
+    "           anyone with the Music switch on (default on). Leave empty",
+    "           until the track exists.",
     "  layerBase : where theme layer folders live.",
     "  layerBaseLocal : used instead when the page is on localhost /",
     "           127.0.0.1 -- copy the theme folders into assets/themes/",
@@ -22,5 +25,6 @@
   "layerBaseLocal": "assets/themes/",
   "tabs": {},
   "games": {},
-  "sfx": {}
+  "sfx": {},
+  "music": ""
 }

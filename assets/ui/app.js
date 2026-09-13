@@ -207,7 +207,7 @@
       loop: true,
       tick: () => Sfx.play('tick'),
       onChange: (it) => renderListPreview(it),
-      onSettle: () => {},
+      onSettle: (it) => resolveSettledArt(it),
       onActivate: (it) => launch(it),
     });
     listWheel.bindArrow($('listUp'), -1);
@@ -243,14 +243,11 @@
   }
 
   let previewToken = 0;
-  let artTimer = 0;
   function renderListPreview(it) {
     if (!it) return;
     const token = ++previewToken;
-    // real art follows shortly after the wheel stops passing over items
-    clearTimeout(artTimer);
-    artTimer = setTimeout(() => { if (token === previewToken) renderListPreviewArt(it); }, 160);
     const g = it.data;
+    const key = g.icon || g.folder;
     const node = document.createElement('div');
     node.className = 'pv pv--game';
     node.innerHTML =
@@ -258,26 +255,52 @@
       `<h3 class="pv-title">${esc(it.label)}</h3>` +
       `<p class="pv-meta">${esc(metaLine(g))}</p>` +
       `<p class="pv-cta"><kbd>⏎</kbd> Play</p>`;
-    node.querySelector('[data-art]').appendChild(Art.placeholder(it.label, { large: true }));
+    const slot = node.querySelector('[data-art]');
+
+    // No placeholder FLASH -- ever -- while scrolling or spinning. If the icon
+    // is already known (probed before, so browser-cached), show it instantly
+    // even mid-scroll. Otherwise leave the box empty (its size is reserved).
+    // The placeholder (and any first-time icon probe) is deferred to onSettle,
+    // so the "artwork pending" box appears only once selection LANDS on an
+    // iconless game -- never flickering past during motion.
+    const known = Art.cachedLogo(key);
+    if (known) fillArt(slot, known);
+
     listPreview.classList.remove('is-in');
     listPreview.replaceChildren(node);
     requestAnimationFrame(() => { if (token === previewToken) listPreview.classList.add('is-in'); });
   }
 
-  /** Swap in real art once the wheel has settled on an item. */
-  function renderListPreviewArt(it) {
+  /** Once the wheel settles, fill the selected item's art: a cached icon, a
+   *  placeholder for a known-iconless game, or a fresh probe. */
+  function resolveSettledArt(it) {
     if (!it) return;
-    const token = previewToken;
-    Art.gameLogo(it.data.icon || it.data.folder).then(art => {
-      if (!art || token !== previewToken) return;
-      const slot = listPreview.querySelector('[data-art]');
-      if (!slot) return;
-      const img = document.createElement('img');
-      img.className = 'pv-art-img pv-art-img--' + art.kind;
-      img.src = art.url; img.alt = '';
-      // Icons fill the fixed placeholder square (stay put); only a wide logo
-      // is allowed to grow the box (has-logo).
-      img.onload = () => { slot.replaceChildren(img); slot.classList.add('has-art'); slot.classList.toggle('has-logo', art.kind === 'logo'); };
+    const key = it.data.icon || it.data.folder;
+    const slot = listPreview.querySelector('[data-art]');
+    if (!slot || slot.querySelector('img')) return;   // icon already shown
+    const known = Art.cachedLogo(key);
+    if (known) fillArt(slot, known);
+    else if (known === null) fillPlaceholder(slot, it.label);
+    else resolveArt(previewToken, slot, key, it.label);
+  }
+
+  function fillArt(slot, art) {
+    const img = document.createElement('img');
+    img.className = 'pv-art-img pv-art-img--' + art.kind;
+    img.src = art.url; img.alt = '';
+    // Icons fill the fixed placeholder square (stay put); only a wide logo
+    // is allowed to grow the box (has-logo).
+    const show = () => { slot.replaceChildren(img); slot.classList.add('has-art'); slot.classList.toggle('has-logo', art.kind === 'logo'); };
+    if (img.complete) show(); else img.onload = show;
+  }
+  function fillPlaceholder(slot, label) {
+    slot.classList.remove('has-art', 'has-logo');
+    slot.replaceChildren(Art.placeholder(label, { large: true }));
+  }
+  function resolveArt(token, slot, key, label) {
+    Art.gameLogo(key).then(art => {
+      if (token !== previewToken || !slot.isConnected) return;
+      if (art) fillArt(slot, art); else fillPlaceholder(slot, label);
     });
   }
 
@@ -499,6 +522,20 @@
     if (view.view !== 'home') { Sfx.play('back'); go({ view: 'home' }); }
   });
 
+  /* Pick a random game: the wheel spins to a random item (never the current
+     one) with a wheel-of-fortune overshoot, and just SELECTS it -- the game
+     is not opened. */
+  const btnRandom = $('btnRandom');
+  if (btnRandom) btnRandom.addEventListener('click', () => {
+    if (view.view !== 'list' || !listWheel) return;
+    const n = listWheel.count;
+    if (!n) return;
+    if (n === 1) { listWheel.select(0); return; }
+    let i; do { i = Math.floor(Math.random() * n); } while (i === listWheel.index);
+    Sfx.play('select');
+    listWheel.spinTo(i);
+  });
+
   /* ── theme layers ────────────────────────────────────────────── */
 
   document.addEventListener('rp:theme', e => applyThemeLayers(e.detail && e.detail.theme));
@@ -543,7 +580,10 @@
 
   /* ── boot ────────────────────────────────────────────────────── */
 
-  Art.ready.then(m => { if (m && m.sfx) Sfx.setSources(m.sfx); });
+  Art.ready.then(m => {
+    if (m && m.sfx) Sfx.setSources(m.sfx);
+    if (m && m.music && window.RPMusic) window.RPMusic.setSource(m.music);
+  });
 
   window.addEventListener('resize', () => {
     homeWheel.layout();

@@ -22,3 +22,6 @@ assets/themes/*/
 
 # local playwright link for tools/ui-harness
 node_modules_pw/
+
+__pycache__/
+*.pyc

@@ -117,9 +117,14 @@
 
   /* ── Sound & Motion ──────────────────────────────────────────── */
   function fillSound(pane) {
+    const Music = window.RPMusic;
     pane.innerHTML = '<h3 class="set-h">Sound & Motion</h3>';
     pane.appendChild(row('Menu sounds', 'Soft clicks as the wheel turns and when you open something.',
       toggle(Sfx ? Sfx.enabled : false, on => { if (Sfx) { Sfx.setEnabled(on); if (on) Sfx.play('select'); } })));
+    // Directly under Menu sounds: the looping background theme. Default on;
+    // once off it stays off across sessions until turned back on.
+    pane.appendChild(row('Music', 'The Red Portal theme, looping in the background.',
+      toggle(Music ? Music.enabled : true, on => { if (Music) Music.setEnabled(on); })));
     const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const tag = document.createElement('span');
     tag.className = 'set-pill';
@@ -130,16 +135,6 @@
   /* ── About & Data ────────────────────────────────────────────── */
   function fillAbout(pane) {
     pane.innerHTML = '<h3 class="set-h">About & Data</h3>';
-
-    const dl = document.createElement('button');
-    dl.type = 'button';
-    dl.className = 'set-btn';
-    dl.textContent = 'Download offline copy';
-    dl.addEventListener('click', () => {
-      const real = document.getElementById('btnOfflineDownload');   // existing handler, panel hidden
-      if (real) { dl.disabled = true; dl.textContent = 'Downloading…'; real.click(); setTimeout(() => { dl.disabled = false; dl.textContent = 'Download offline copy'; }, 4000); }
-    });
-    pane.appendChild(row('Red Portal (offline)', 'A single-file copy of the launcher you can keep.', dl));
 
     const links = document.createElement('div');
     links.className = 'set-links';

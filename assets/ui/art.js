@@ -48,15 +48,23 @@ window.RPArt = (function () {
     });
   }
 
+  const resultCache = new Map();   // key -> {url,kind} | null, once resolved
+
   function gameLogo(key) {
     if (!key) return Promise.resolve(null);
     const u = manifest.games && manifest.games[key];
-    if (typeof u === 'string' && u) return Promise.resolve({ url: u, kind: 'logo' });
+    if (typeof u === 'string' && u) { const r = { url: u, kind: 'logo' }; resultCache.set(key, r); return Promise.resolve(r); }
     // Existing convention: assets/icons/<key>.png, present for some games
     // and simply absent for others (index.html does the same onerror dance).
     const url = ICON_BASE + encodeURIComponent(key) + '.png';
     if (!iconCache.has(key)) iconCache.set(key, probe(url));
-    return iconCache.get(key).then(ok => (ok ? { url, kind: 'icon' } : null));
+    return iconCache.get(key).then(ok => { const r = ok ? { url, kind: 'icon' } : null; resultCache.set(key, r); return r; });
+  }
+
+  /** Synchronous: the resolved art for a key if we've already probed it,
+   *  else undefined. Lets the preview render a known icon with no flash. */
+  function cachedLogo(key) {
+    return resultCache.has(key) ? resultCache.get(key) : undefined;
   }
 
   /**
@@ -87,7 +95,7 @@ window.RPArt = (function () {
   }
 
   return {
-    ready, tabLogo, gameLogo, placeholder,
+    ready, tabLogo, gameLogo, cachedLogo, placeholder,
     get manifest() { return manifest; },
     get layerBase() { return manifest.layerBase; },
   };
