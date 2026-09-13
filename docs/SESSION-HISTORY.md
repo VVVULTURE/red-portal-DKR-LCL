@@ -653,6 +653,25 @@ Fixes after the redesign went live, all on `main`:
 - **Geometry Dash settings thumbnail** showed only layer 3 (it has no merged
   `bg`). Thumbnails now composite all layers when there's no merged wallpaper.
 
+#### Session 5e — polish round 2 (owner feedback)
+
+- **Game icons no longer flash the placeholder before loading.** Art results
+  are cached per key (`RPArt.cachedLogo`); a known icon renders instantly,
+  even mid-scroll, and the placeholder / first probe is deferred to `onSettle`.
+  So a game with an icon shows the icon and never the "artwork pending" box,
+  intermediate items during a scroll/spin never trigger a probe, and the
+  placeholder appears only for genuinely iconless games once selection lands.
+- **"Pick A Random Game"** button under the search bar (`#btnRandom`,
+  `RPWheel.spinTo`): spins to a random game (never the current one) with a
+  wheel-of-fortune overshoot-and-settle (easeOutCubic to just past the target,
+  easeInOutQuad back). It selects; it does not open the game.
+- **Removed the offline-file download** from Settings.
+- **Added a "Music" switch** under "Menu sounds" (`RPMusic`, `assets/ui/music.js`).
+  Default on; loops a background theme once its URL is set in
+  `art-manifest.json` ("music"); off persists across sessions (`rp_music`). No
+  track is wired yet -- a music artist is making the theme; the switch just
+  remembers the choice until then (nothing plays / no 404 in the meantime).
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
