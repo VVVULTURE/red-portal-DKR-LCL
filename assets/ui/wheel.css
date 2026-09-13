@@ -729,6 +729,49 @@ body.rp-open #theme-bg { display: none; }
 .set-toggle.on { background: var(--accent); border-color: var(--accent); box-shadow: var(--glow-sm); }
 .set-toggle.on .set-knob { transform: translateX(20px); background: #fff; }
 
+/* Music volume slider (0-200%) */
+.set-vol {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-shrink: 0;
+}
+.set-vol input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: clamp(120px, 16vw, 200px);
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) var(--fill, 50%), var(--surface-3) var(--fill, 50%), var(--surface-3) 100%);
+  outline: none;
+  cursor: pointer;
+}
+.set-vol input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: var(--glow-sm);
+  cursor: pointer;
+}
+.set-vol input[type="range"]::-moz-range-thumb {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  cursor: pointer;
+}
+.set-vol input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.set-vol-val {
+  min-width: 3.2em;
+  text-align: right;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.82rem;
+  color: var(--accent);
+}
+
 .set-pill {
   flex-shrink: 0;
   font-family: 'Share Tech Mono', monospace;

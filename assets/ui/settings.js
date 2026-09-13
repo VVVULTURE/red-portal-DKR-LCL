@@ -63,6 +63,25 @@
     r.appendChild(control);
     return r;
   }
+  /** A 0-200% volume slider bound to RPMusic. */
+  function volumeControl(Music) {
+    const wrap = document.createElement('div');
+    wrap.className = 'set-vol';
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = '0'; range.max = '200'; range.step = '5';
+    range.value = String(Music ? Music.volume : 100);
+    range.setAttribute('aria-label', 'Music volume');
+    const out = document.createElement('span');
+    out.className = 'set-vol-val';
+    out.textContent = range.value + '%';
+    const paint = () => { const v = +range.value; out.textContent = v + '%'; range.style.setProperty('--fill', (v / 200 * 100) + '%'); };
+    range.addEventListener('input', () => { paint(); if (Music) Music.setVolume(+range.value); });
+    paint();
+    wrap.append(range, out);
+    return wrap;
+  }
+
   function toggle(on, onChange) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -125,6 +144,9 @@
     // once off it stays off across sessions until turned back on.
     pane.appendChild(row('Music', 'The Red Portal theme, looping in the background.',
       toggle(Music ? Music.enabled : true, on => { if (Music) Music.setEnabled(on); })));
+    // Volume, 0-200% (100% = the track's own level; higher amplifies it).
+    // Saved across sessions.
+    pane.appendChild(row('Music volume', 'How loud the theme plays, up to 200%.', volumeControl(Music)));
     const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const tag = document.createElement('span');
     tag.className = 'set-pill';
