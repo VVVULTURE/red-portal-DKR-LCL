@@ -692,6 +692,37 @@ tap isn't tainted when Red Portal runs in a blob tab. Falls back to the
 capped element volume if Web Audio is unavailable. Verified on live: gain
 reaches 2.0 at 200% and persists.
 
+#### Session 5h — music to 250%, "Rescan Game Files", manifest staleness
+
+- **Music volume now 0-250%, default 250%** (was 0-200% / default 100%). Same
+  Web Audio GainNode; slider and `rp_music_vol` updated.
+- **"Rescan Game Files"** in Settings > About & Data -> POST `/api/rescan`:
+  an authoritative live R2 listing (`listR2GameFoldersViaS3` for
+  Games/Testing/Apps + `listR2EmulationEntries`) that bypasses the manifest,
+  caches the result for 10 min, updates `lastGoodGrids`, and the client then
+  repaints via `RedPortal.refreshGrids()`. Read-only (LIST creds), safe anytime.
+
+- **Bug #35 -- a moved/renamed index.html keeps serving the old (404) path.**
+  FNAE's real entry point moved to `Games/FNAE/gamefile/index.html`, but the
+  site kept linking `Games/FNAE/index.html` (404). Root cause: `manifest.json`
+  is built from **local files + a bucket merge**, so a key for a file that was
+  deleted from the bucket (but still in the local folder, or left over in a
+  previous manifest) LINGERS -- and the server's "shallowest index.html wins"
+  then prefers that stale top-level key over the real subfolder one. A reload
+  never helps; only a manifest rebuild or a live re-listing does.
+  **Two-part fix:** (1) rebuilt `manifest.json` authoritatively from the live
+  bucket (every real object -> URL; dropped the dead key; verified same game
+  counts 46/56/2, FNAE -> gamefile) -- fixes it at rest for everyone; (2) the
+  Rescan button, which lists live and so can never be fooled by a stale key.
+  Tools: `C:\claude-code\Red Portal UIebuild-manifest.mjs` (dry-run, then
+  `--yes` to back up + upload; backup at `manifest.backup.json`).
+
+**Note on the manifest:** it can drift whenever files are changed DIRECTLY in
+the bucket (the owner's usual workflow) rather than via the local folder + a
+full sync. Symptoms: a new game not listed, or an old path still served. Fix =
+Rescan, or rebuild the manifest, or a full `sync_to_r2.py` run from a clean
+local folder.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
