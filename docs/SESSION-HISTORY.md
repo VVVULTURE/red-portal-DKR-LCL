@@ -19,7 +19,7 @@
 > re-deriving them costs far more than storing them. Condense old entries only
 > if they are genuinely redundant, and keep the root causes.
 
-Last updated: **2026-09-10** (re-verified against the live site)
+Last updated: **2026-09-12**
 
 ---
 
@@ -49,6 +49,14 @@ re-deriving anything. Read in this order:
 | Local sync folder | `C:\Stuff\RedTesting\red-portal-DKR-LCL-main` |
 | Discord bot | `C:\Stuff\Red Bot\red-portal-bot-for-friend` (local, exposed via ngrok) |
 | Single-file port builder | `github.com/VVVULTURE/Web-App-To-HTML-Builder` (**private**), working copy `C:\Stuff\WATHB`, output `C:\Stuff\WATHB-built` |
+| Replaced multi-file originals | `C:\Stuff\WATHB-replaced-originals` (+ manifest; `replace.py --restore --apply` reverses everything) |
+
+### The two documents
+
+| Doc | Covers |
+| --- | --- |
+| `docs/SESSION-HISTORY.md` (this file) | the site, the proxy, R2 discovery, the bot, the bug ledger, the runbook |
+| `docs/SINGLE-FILE-PORTS.md` | the WATHB pipeline: how a port is built, every defect class, the measured limits, what "verified" means |
 
 **The local sync folder is not the repo.** It holds the game files (`Games/`,
 `Testing/`, `Apps/`, `Emulation/`, `Movies/`) that get uploaded to R2. The repo
@@ -74,16 +82,19 @@ back from somewhere and are dead — see §5.
 
 ---
 
-## 2. Current state (2026-09-10)
+## 2. Current state (2026-09-12)
 
 | Measure | Value |
 | --- | --- |
-| R2 objects | 87,956 |
-| Games listed on the site | 104 (Games 46, Testing 57, Apps 1) — **2 are now dead tiles, see below** |
-| Games listed that actually load | **102 / 104** — Dadish 3D and Recoil were deleted from the bucket; the manifest still lists them (ledger #23) |
+| R2 objects | 44,306 |
+| Games listed on the site | 103 (Games 46, Testing 56, Apps 1) |
+| Games listed that actually load | **103 / 103** — checked by fetching every `href` |
+| Games served as ONE self-contained .html | **70** (see `SINGLE-FILE-PORTS.md`) |
+| Games that can never be single-file | 8 — over the 384 MiB ceiling |
+| Emulation ROMs | 98, sorted into 12 console folders |
 | Hardcoded game links in `index.html` | **0** |
 | Requests before the grids appear | **0** (inlined into the HTML) |
-| `manifest.json` | ~875 KB gzipped, revalidated by ETag |
+| Launcher page cross-origin isolated | **Yes** — COOP same-origin + COEP credentialless |
 | `.git` / `node_modules` public on R2 | No — 404 |
 
 ### Non-negotiable product rules (from the owner)
@@ -446,6 +457,36 @@ pages pointing at `redproxy/embed.html`, deleted in Phase C. It now builds
 
 ---
 
+#### Session 4 — single-file ports shipped, isolation, emulator sort
+
+**Asked for:** finish the port pipeline, make every convertible game a single
+file, swap them into Red Portal keeping the originals for rollback, fix the
+Stardew Valley error, sort the emulator ROMs, and write all of it down.
+
+- **70 games replaced** with one self-contained `.html` each, verified in blob
+  tabs first. Originals moved to `C:\Stuff\WATHB-replaced-originals`;
+  `replace.py --restore --apply` puts every one back. Full detail, including
+  all thirteen defect classes, is in `SINGLE-FILE-PORTS.md`.
+- **Cross-origin isolation** added to the launcher so SharedArrayBuffer games
+  work. Ledger #25. The measurement that settled it: a blob tab created by an
+  isolated document reports `crossOriginIsolated === true`; created by a
+  non-isolated one it has no SharedArrayBuffer at all.
+- **98 emulator ROMs sorted** into 12 console folders. Classified by reading
+  the ROM *inside* each archive, not by title — the title lies here. Doom is
+  the **SNES** port, Monopoly is **DS**, Tetris is **Game Boy**, Pac-Man World
+  is **PS1**, and `pokemon_emerald.xir` is a ZIP with a renamed extension
+  holding two GBA ROMs. Three `.pce` games had no console entry at all;
+  TurboGrafx-16 → core `pce` was added to `cores.json`.
+- **`--prune-prefix`** added to `sync_to_r2.py`. Ledger #26.
+- Orphan cleanup took the bucket 50,083 → **44,306** objects, after which all
+  **103 listed games still load**.
+
+**A mistake worth recording:** when the owner reported the bucket not updating,
+the first check reported all 70 games as `DIFFERENT`. That was wrong — R2 does
+not return `Content-Length` on a `HEAD`, so every comparison was against
+`None`. A `Range: bytes=0-0` request reports the true size in `Content-Range`.
+Measure with a method you have confirmed returns a number.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
@@ -509,6 +550,9 @@ Read this before debugging. Several of these present identically.
 | 19 | Would have shipped a manifest listing just-deleted games | The manifest was uploaded **before** the prune ran | Rewritten from the survivors after pruning |
 | 20 | Bot would build dead game links | `templates.js` pointed at `redproxy/embed.html`, deleted in Phase C | Builds `/rp/` URLs with the codec |
 | 21 | **A game listed, returns HTTP 200, but is not a game** (Dadish 3D) | `Testing/Dadish-3D/index.html` is 32 bytes of `{"ISO":"US","ccpaApplies":false}` — a CCPA geo-API response saved as `index.html` while scraping. Shallowest-wins picks it over the real `gamefile/index.html` | Not yet fixed. **A status-code check cannot catch this class** — the audit that produced "104/104" only looked at HTTP status |
+| 25 | **A .NET/WASM game asserts "SharedArrayBuffer is not enabled on this page"** | SharedArrayBuffer exists only in a cross-origin-isolated document, and the launcher sent `unsafe-none`. The blob game tab inherits isolation from the page that creates it | COOP `same-origin` + COEP **`credentialless`** on the launcher document only. NOT require-corp: that blocks every R2 game icon (measured) |
+| 26 | **A sync runs, R2 shows the old multi-file game, "the sync is broken"** | It is not. An upload-only sync never deletes, so replacing a folder with one `index.html` leaves all the old files beside it and the listing looks untouched | Verify the bytes, not the listing. Clear leftovers with `--prune --prune-prefix Games/ ...`, never a whole-bucket prune |
+| 27 | **A game listed on the site loads a menu but never starts** | Verification scored it on its start screen. A clean console is not proof a game runs | `verify.mjs --click <text>`; and the stuck-loader check compares visible text against the original |
 | 23 | **A tile 404s after deleting its files from R2** | The site lists from `manifest.json`, which is only rewritten by a sync. Deleting objects from the bucket by hand leaves them listed | Run a normal `sync_to_r2.py` (no `--prune`); it rebuilds the manifest from the bucket |
 | 24 | **A single-file port loads but the app's own `<script src>` 404s** | References already in the markup are set by the HTML parser internally — `setAttribute` and the `src` property setter never see them, and the request starts before any script runs | Rewrite static refs at BUILD time; a runtime hook can only catch dynamic ones. Both layers required — see the WATHB repo |
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
@@ -545,6 +589,23 @@ bucket that is not in the local folder** — that is its job, and it is how 62
 playable games nearly went. Protect anything that should survive without a
 local file by adding its key to `prune-keep.txt`.
 
+### Clearing leftovers after replacing a game with a single file
+
+A normal sync only uploads. Replacing a folder with one `index.html` leaves
+every old file on R2, so the bucket still lists the multi-file version and
+looks untouched. Scope the prune instead of pruning the whole bucket:
+
+```powershell
+python sync_to_r2.py "<root>" --prune --prune-prefix Games/ --prune-prefix Testing/ --prune-prefix Apps/
+# read prune-plan.txt, then add:  --yes --max-deletes <count>
+```
+
+### Building and verifying single-file ports
+
+See `SINGLE-FILE-PORTS.md`. The one rule that matters: **verify in a blob tab**
+(`verify-all.py` does), because serving a port over `http://` is a different
+URL context and has twice passed games that were broken in production.
+
 ### Command shape gotcha
 
 Commands written for the `.bat` end with a `"` that closes its
@@ -570,31 +631,27 @@ honestly returns 502.
 
 ## 9. Open items
 
-- **GeForce NOW streaming is untested.** Sign-in reaches the real form; playing
-  a game needs the owner's NVIDIA account.
-- **The manifest needs regenerating.** The owner deleted `Testing/Dadish-3D`
-  and `Testing/Recoil` from the R2 bucket (and they are gone locally too), but
-  `manifest.json` still lists them, so the site shows two tiles that 404.
-  A normal `sync_to_r2.py` run rebuilds the manifest from the bucket and fixes
-  it — no prune needed. Ledger #23.
-- **Only 3 games are actually missing** — Google Snake, Postal, Get Yolked.
-  ~~13 games are gone everywhere~~ **was wrong** — see the correction note
-  below. Verified 2026-09-10 by fetching every `href` in `/api/grids`.
-- **`Testing/Recoil` is a mirrored game hub holding 372 more playable games**
-  (`Testing/Recoil/_cdn/3be7cabfa2eb/*/index.html`) that the site surfaces as a
-  single tile. They are already on R2 and already paid for in storage. Listing
-  them would take the site from 104 to ~470 games with no new uploads. Three
-  games previously believed lost live in here: `a day in the office`,
-  `amazing-strange-rope-police-vice-spider`, `last-breath-epstein`. Whether to
-  surface them, and how, is the owner's call.
+- **25 of the 95 built ports still fail verification** and were deliberately
+  NOT swapped in; those games remain multi-file folders and work as before.
+  `triage.py` groups the failures by signature — they cluster, so one fix
+  usually moves several. Genuinely unportable: FNF and Slitherio are redirect
+  stubs, Untitled Goose Game and How To Fish are partial mirrors with no local
+  `.data`/`.wasm`.
+- **Stardew Valley is not confirmed playable.** The SharedArrayBuffer blocker
+  is removed and isolation is verified, but "Caching game content…" is too slow
+  in headless to watch to completion. Needs a human to play it.
+- **Safari gets no isolation.** It supports only `require-corp`, which would
+  block the R2 icons, so SharedArrayBuffer games stay broken there. No worse
+  than before.
+- **GeForce NOW streaming is untested** — sign-in reaches the real form;
+  playing needs the owner's NVIDIA account.
+- **Three games are gone everywhere** — Google Snake, Postal, Get Yolked. Not
+  on R2, not in the folder. They need their files restored locally first.
 - **Credentials shared in conversation** (R2 access key + secret, and the bot's
-  hardcoded fallbacks) should be rotated. Rotating R2 means updating the `.bat`
-  and the bot's `.env`.
-- **A few double-prefixed subresource requests** on the GFN mall page —
-  `/rp/<our origin>/rp/<target>` — which Scramjet's same-origin guard rejects.
-  Cosmetic (a couple of login-wall images); cause not yet identified.
-- GFN creates its own `blob:` URLs that Scramjet routes to the server, which
-  cannot resolve them. Harmless noise, accounts for most recorded errors.
+  hardcoded fallbacks) should be rotated.
+- **The bot must be restarted** to pick up `/post-report`; until then
+  `/api/report` honestly returns 502.
+- A few double-prefixed subresource requests on the GFN mall page — cosmetic.
 
 ---
 
