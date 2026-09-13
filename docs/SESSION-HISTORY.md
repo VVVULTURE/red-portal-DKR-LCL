@@ -680,6 +680,18 @@ to the injected `<base>`). Verified on live production: it starts looping at
 the first user gesture and the Music switch stops it / persists off. To swap
 the track later, replace that file (or point "music" at any URL).
 
+#### Session 5g — louder music + volume slider
+
+The theme now plays through a Web Audio **GainNode** (`MediaElementSource ->
+GainNode -> destination`) rather than the `<audio>` element's own `.volume`,
+which caps at 1.0 -- so the volume can exceed 100%. Default is 100% (was 50%),
+and a **Music volume** slider (0-200%, live % readout) sits under the Music
+switch in Settings, saved across sessions (`rp_music_vol`). The element is
+`crossOrigin='anonymous'` and the mp3 is served with `*` CORS, so the audio
+tap isn't tainted when Red Portal runs in a blob tab. Falls back to the
+capped element volume if Web Audio is unavailable. Verified on live: gain
+reaches 2.0 at 200% and persists.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
