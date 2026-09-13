@@ -55,7 +55,10 @@ window.RPScene = (function () {
     const t = (now - t0) / 1000;
     const dx = REDUCED ? 0 : Math.sin(t * 2 * Math.PI / DRIFT_S) * DRIFT_PX;
     const dy = REDUCED ? 0 : Math.cos(t * 2 * Math.PI / (DRIFT_S * 1.37)) * DRIFT_PX * 0.6;
-    const scale = 1.04 + zoom * 0.07;
+    // 1.05 is just enough overscan to hide the parallax shift (max ~26px on
+    // the deepest layer) against a viewport-sized, cover-fit layer -- keeping
+    // the scene as zoomed-out as possible without ever showing an edge.
+    const scale = 1.05 + zoom * 0.07;
     for (const set of sets) {
       for (const L of set.layers) {
         const x = (-cur.x * AMP_X + dx) * L.depth;

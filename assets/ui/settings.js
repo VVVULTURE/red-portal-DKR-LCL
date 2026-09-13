@@ -87,13 +87,23 @@
     const cur = (RP.currentTheme() || {}).id;
     const base = (Art && Art.layerBase) || 'https://assets.redportal.dpdns.org/assets/themes/';
     RP.THEMES.forEach(t => {
-      const thumb = t.bg || (t.folder && t.layers && t.layers.length ? base + encodeURIComponent(t.folder) + '/' + t.layers[0] : '');
+      // Prefer the flat merged wallpaper (one small image). If a theme has no
+      // merged bg (e.g. Geometry Dash), composite its depth layers back-to-
+      // front so the thumbnail shows the FULL scene, not just layer 3.
+      let thumbCss = '';
+      if (t.bg) {
+        thumbCss = `background-image:url('${t.bg}');`;
+      } else if (t.folder && t.layers && t.layers.length) {
+        const dir = base + encodeURIComponent(t.folder) + '/';
+        const urls = t.layers.slice().reverse().map(f => `url('${dir}${f}')`); // front-most first for CSS stacking
+        thumbCss = `background-image:${urls.join(',')};`;
+      }
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'set-theme' + (t.id === cur ? ' active' : '');
       card.dataset.themeId = t.id;
       card.innerHTML =
-        `<span class="set-theme-thumb" style="${thumb ? `background-image:url('${thumb}')` : ''};--sw:${t.color}"></span>` +
+        `<span class="set-theme-thumb" style="${thumbCss}--sw:${t.color}"></span>` +
         `<span class="set-theme-name"><span class="set-theme-dot" style="background:${t.color}"></span>${esc(t.name)}</span>`;
       card.addEventListener('click', () => {
         RP.applyTheme(t.id);

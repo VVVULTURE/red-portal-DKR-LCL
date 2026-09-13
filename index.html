@@ -1414,7 +1414,7 @@ footer {
   </style>
   <!-- The console-style presentation layer (wheel, scene, transitions).
        Everything above stays as it was; assets/ui/ only adds to it. -->
-  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260913b" />
+  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260913c" />
 </head>
 <body>
 
@@ -2136,10 +2136,12 @@ footer {
       bg:    'https://assets.redportal.dpdns.org/assets/themes/car.png',
       folder: 'Smooth Ride',
       layers: ['ride-3.png', 'ride-2.png', 'ride-1.png'],
-      // the truck and flag are painted in BOTH ride-3 and ride-1; any real
-      // offset shows two trucks. Nearly pinned until the artist clears
-      // them out of ride-3.
-      depth:  [0.12, 0.08, 0.04],
+      // The truck and flag are painted into BOTH ride-3 (back) and ride-1
+      // (front) at the same spot, so those two must move at the SAME rate or
+      // you see two trucks. They do here, at a real amplitude, while the
+      // gradient (ride-2) lags for a little depth. If the artist ever clears
+      // the truck out of ride-3, ride-1 can be pushed lower for true parallax.
+      depth:  [0.5, 0.35, 0.5],
     },
     {
       id:    'Cracked',
@@ -2147,8 +2149,8 @@ footer {
       color: '#ffffff',
       bg:    'https://assets.redportal.dpdns.org/assets/themes/Cracked.png',
       folder: 'Cracked',
-      layers: ['cracked-3.png', 'cracked-2.png'],
-      depth:  [1, 0.5],
+      layers: ['cracked-3.png', 'cracked-2.png', 'cracked-1.png'],
+      depth:  [1, 0.5, 0.25],
     },
     {
       id:    'Mr. Aspin',
@@ -3452,11 +3454,11 @@ footer {
      controller last. They are plain scripts so a blob-wrapped copy of this
      page (the launcher case, which injects <base>) resolves them the same
      way it resolves /api/*. -->
-<script src="assets/ui/wheel.js?v=20260913b"></script>
-<script src="assets/ui/scene.js?v=20260913b"></script>
-<script src="assets/ui/sfx.js?v=20260913b"></script>
-<script src="assets/ui/art.js?v=20260913b"></script>
-<script src="assets/ui/settings.js?v=20260913b"></script>
-<script src="assets/ui/app.js?v=20260913b"></script>
+<script src="assets/ui/wheel.js?v=20260913c"></script>
+<script src="assets/ui/scene.js?v=20260913c"></script>
+<script src="assets/ui/sfx.js?v=20260913c"></script>
+<script src="assets/ui/art.js?v=20260913c"></script>
+<script src="assets/ui/settings.js?v=20260913c"></script>
+<script src="assets/ui/app.js?v=20260913c"></script>
 </body>
 </html>

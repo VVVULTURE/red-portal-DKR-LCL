@@ -128,12 +128,22 @@ window.RPWheel = (function () {
 
     get count() { return this.items.length; }
 
+    /** Whether the wheel can ACTUALLY wrap. `opts.loop` is only a request;
+     *  looping needs enough items to fill the arc, or the render never draws
+     *  a wrapped copy and movement just spins the lone item off into nothing.
+     *  This is the exact same threshold `_render` uses, so movement and
+     *  drawing always agree. With the current geometry it is 7+ items; a 1-
+     *  or 2-item list (e.g. Apps) clamps at its ends instead. */
+    get looping() {
+      return this.opts.loop && this.items.length * CFG.stepDeg > 2 * CFG.maxDeg;
+    }
+
     /** Rounded, normalised index of the selected item. */
     get index() {
       const n = this.items.length;
       if (!n) return -1;
       const r = Math.round(this.pos);
-      return this.opts.loop ? ((r % n) + n) % n : clamp(r, 0, n - 1);
+      return this.looping ? ((r % n) + n) % n : clamp(r, 0, n - 1);
     }
 
     get selected() { return this.items[this.index] || null; }
@@ -151,7 +161,7 @@ window.RPWheel = (function () {
     select(i) {
       const n = this.items.length;
       if (!n || !this.enabled) return;
-      if (!this.opts.loop) { this._setTarget(clamp(i, 0, n - 1)); return; }
+      if (!this.looping) { this._setTarget(clamp(i, 0, n - 1)); return; }
       // unwrap i to the copy nearest to pos
       const base = Math.round(this.pos);
       let d = ((i - base) % n + n) % n;
@@ -168,7 +178,7 @@ window.RPWheel = (function () {
     snapTo(i) {
       const n = this.items.length;
       if (!n) return;
-      this.pos = this.target = this.opts.loop ? i : clamp(i, 0, n - 1);
+      this.pos = this.target = this.looping ? i : clamp(i, 0, n - 1);
       this.vel = 0; this.mode = 'ease'; this.lastIdx = -1; this.settled = false;
       this._render(true);
     }
@@ -180,7 +190,7 @@ window.RPWheel = (function () {
 
     _setTarget(t) {
       const n = this.items.length;
-      if (!this.opts.loop) t = clamp(t, 0, n - 1);
+      if (!this.looping) t = clamp(t, 0, n - 1);
       if (t === this.target && this.mode === 'ease') return;
       this.target = t;
       this.mode = 'ease';
@@ -227,12 +237,12 @@ window.RPWheel = (function () {
           this.target = Math.round(this.pos);
         } else {
           this.pos += v * dt;
-          if (!this.opts.loop) this.pos = clamp(this.pos, 0, n - 1);
+          if (!this.looping) this.pos = clamp(this.pos, 0, n - 1);
         }
       } else if (this.mode === 'free') {
         this.pos += this.vel * dt;
         this.vel *= Math.exp(-CFG.flingFriction * dt);
-        if (!this.opts.loop && (this.pos <= 0 || this.pos >= n - 1)) {
+        if (!this.looping && (this.pos <= 0 || this.pos >= n - 1)) {
           this.pos = clamp(this.pos, 0, n - 1); this.vel = 0;
         }
         if (Math.abs(this.vel) < CFG.flingMin) {
@@ -264,7 +274,7 @@ window.RPWheel = (function () {
       const step = CFG.stepDeg * DEG;
       const maxA = CFG.maxDeg * DEG;
       const half = n / 2;
-      const loop = this.opts.loop && n * CFG.stepDeg > 2 * CFG.maxDeg;
+      const loop = this.looping;
 
       for (let i = 0; i < n; i++) {
         let d = i - this.pos;
@@ -410,7 +420,7 @@ window.RPWheel = (function () {
         if (Math.abs(e.clientY - d.y0) > CFG.tapPx) d.moved = true;
         // dragging a finger DOWN pulls the wheel down: earlier items come up
         let p = d.pos0 - (e.clientY - d.y0) / pxPerItem;
-        if (!this.opts.loop) p = clamp(p, 0, this.items.length - 1);
+        if (!this.looping) p = clamp(p, 0, this.items.length - 1);
         this.pos = p;
         e.preventDefault();
       }, { passive: false });

@@ -275,7 +275,9 @@
       const img = document.createElement('img');
       img.className = 'pv-art-img pv-art-img--' + art.kind;
       img.src = art.url; img.alt = '';
-      img.onload = () => { slot.replaceChildren(img); slot.classList.add('has-art'); };
+      // Icons fill the fixed placeholder square (stay put); only a wide logo
+      // is allowed to grow the box (has-logo).
+      img.onload = () => { slot.replaceChildren(img); slot.classList.add('has-art'); slot.classList.toggle('has-logo', art.kind === 'logo'); };
     });
   }
 

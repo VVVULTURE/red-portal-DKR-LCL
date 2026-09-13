@@ -39,12 +39,16 @@ body.has-layers::after { opacity: 0; }
 .px-set.is-in { opacity: 1; }
 .px-layer {
   position: absolute;
-  inset: -4%;
+  /* Cover the viewport exactly (most zoomed-out that still fills any screen
+     size/aspect with no bare edges); the small scale() below is only enough
+     overscan to hide the parallax shift, not extra zoom. scene.js overwrites
+     the transform each frame -- this value is just the pre-JS first paint. */
+  inset: 0;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   will-change: transform;
-  transform: scale(1.04);
+  transform: scale(1.05);
 }
 .px-vignette {
   position: absolute;
@@ -310,13 +314,18 @@ kbd {
   filter: blur(4px);
 }
 .pv-art-img { max-width: 100%; max-height: 100%; filter: drop-shadow(0 0 18px var(--accent-glow)) drop-shadow(0 10px 20px rgba(0,0,0,0.6)); animation: art-in 0.4s var(--ease-out); }
+/* An artist icon fills the SAME square the placeholder occupied, so it lands
+   exactly where the "artwork pending" box was -- not shrunk to its own size
+   in a different spot. */
+.pv-art-img--icon { width: 100%; height: 100%; object-fit: contain; }
+/* A wide logo may grow past the square; only then does the box go auto-width. */
 .pv-art-img--logo { max-width: clamp(220px, 32vw, 440px); }
-.pv--game .pv-art.has-art { width: auto; min-width: clamp(150px, 20vw, 250px); }
+.pv--game .pv-art.has-logo { width: auto; min-width: clamp(150px, 20vw, 250px); }
 @keyframes art-in { from { opacity: 0; transform: scale(0.92); } }
 .pv-title {
   font-family: 'Exo 2', sans-serif;
   font-weight: 800;
-  font-size: clamp(1.8rem, 3.6vw, 3.4rem);
+  font-size: clamp(2.4rem, 5vw, 5rem);
   line-height: 1.02;
   letter-spacing: 0.005em;
   color: #fff;
@@ -829,7 +838,7 @@ body.rp-open #theme-bg { display: none; }
   .pv--game .pv-art { width: 96px; height: 96px; margin: 0; grid-row: 1 / span 3; }
   .pv--game .pv-art.has-art { min-width: 96px; max-width: 45vw; }
   .pv-art-img--logo { max-width: 45vw; }
-  .pv-title { font-size: 1.5rem; }
+  .pv-title { font-size: 1.9rem; }
   .pv-cta { display: none; }
   .art-ph { max-width: 96px; border-radius: 12px; padding: 0.4rem; }
   .art-ph-mono { font-size: 2rem; }
