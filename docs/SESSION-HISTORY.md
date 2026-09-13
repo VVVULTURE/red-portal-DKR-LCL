@@ -723,6 +723,23 @@ full sync. Symptoms: a new game not listed, or an old path still served. Fix =
 Rescan, or rebuild the manifest, or a full `sync_to_r2.py` run from a clean
 local folder.
 
+#### Session 5i — tab icons on the wheel, credits, asset list
+
+- **Tab icons.** Each main-wheel tab can show an artist icon to the RIGHT of
+  its label, from `assets/icons/tab-<slug>.png` (games, apps, emulation,
+  testing, requests, report, executor, links, tutorials, movies, credits,
+  settings, redproxy). It's **probed with `fetch`** (R2 sends `ACAO:*` even on
+  404s) and injected via `RPWheel.setItemIcon()` only once it exists -- so
+  unlike the game-grid `<img onerror>` pattern it fires no console 404s, and
+  the tabs look exactly as before until an icon is uploaded. Verified live: 0
+  icons shown, 0 tab request failures.
+- **Credits:** added TheoTheTaco -- "Music Artist & Chill Dude".
+- **Asset list for the artist:** `C:\claude-code\asset-list.md` -- every icon
+  needed across Games (46), Testing (56), Emulation (98) and the 13 tabs, with
+  exact filenames and what's already done (25 icons exist; 196 still needed).
+  Regenerate with `C:\claude-code\Red Portal UI\gather-assets.mjs` then
+  `gen-asset-list.mjs` whenever the game list changes.
+
 ## 5. What was deleted, and why it must not come back
 
 | File | Was |
