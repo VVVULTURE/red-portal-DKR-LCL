@@ -78,13 +78,31 @@ window.RPMusic = (function () {
     if (p && p.catch) p.catch(() => {});
   }
 
+  // Best-effort autoplay on load, BEFORE any gesture. Browsers reset the
+  // autoplay gate on every page load, so JS cannot permanently bypass it --
+  // but if the browser already trusts this site (its Media Engagement Index
+  // has built up over repeat visits, or the user set Sound = Allow for it)
+  // this plays with ZERO clicks. If it's blocked, it fails silently and the
+  // gesture listeners below still catch the very first interaction.
+  function attemptAutoplay() {
+    if (!enabled || !url || unlocked) return;
+    ensureAudio();
+    buildGraph();
+    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const p = audio && audio.play();
+    if (p && p.then) p.then(() => { unlocked = true; }).catch(() => {});
+  }
+
   function unlock() {
     if (unlocked) return;
     unlocked = true;
     tryPlay();
   }
-  ['pointerdown', 'keydown', 'touchstart'].forEach(ev =>
-    window.addEventListener(ev, unlock, { passive: true }));
+  // "Any interaction" unlocks it -- not a deliberate click on a control.
+  // A mouse move, key, scroll or tap anywhere is enough, so the user never
+  // has to hunt for a button; the first thing they do on the page starts it.
+  ['pointerdown', 'mousedown', 'keydown', 'touchstart', 'mousemove', 'wheel', 'scroll', 'click'].forEach(ev =>
+    window.addEventListener(ev, unlock, { passive: true, capture: true }));
 
   function setEnabled(on) {
     enabled = !!on;
@@ -107,7 +125,8 @@ window.RPMusic = (function () {
     if (!u || u === url) return;
     url = u;
     audio = null; ctx = null; gainNode = null; graphTried = false;   // rebuild against the new source
-    tryPlay();
+    tryPlay();          // plays now if a gesture already happened
+    attemptAutoplay();  // else try a gesture-free start (works if the browser trusts the site)
   }
 
   return {

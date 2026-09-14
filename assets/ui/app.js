@@ -130,11 +130,18 @@
     img.src = url;
     slot.appendChild(img);
   }
+  // A confirmed tab icon shows in two places, from the same tab-<slug>.png:
+  // big beside the section title (left preview), and small in place of the
+  // emoji on the wheel item. Tabs with no uploaded icon keep their emoji.
+  function applyTabIcon(key, url) {
+    setPreviewTabIcon(key, url);
+    homeWheel.setGlyphIcon(key, url);
+  }
   function resolveTabIcons() {
     for (const it of homeWheel.items) {
       if (!it.icon) continue;
       const known = tabIconState.get(it.icon);
-      if (known === true) { setPreviewTabIcon(it.key, it.icon); continue; }
+      if (known === true) { applyTabIcon(it.key, it.icon); continue; }
       if (known === false || known === 'pending') continue;
       tabIconState.set(it.icon, 'pending');
       // no-cache (revalidate), NOT force-cache: a tab icon uploaded AFTER a
@@ -143,7 +150,7 @@
       fetch(it.icon, { cache: 'no-cache' })
         .then(r => {
           tabIconState.set(it.icon, r.ok);
-          if (r.ok) setPreviewTabIcon(it.key, it.icon);
+          if (r.ok) applyTabIcon(it.key, it.icon);
         })
         .catch(() => tabIconState.set(it.icon, false));
     }

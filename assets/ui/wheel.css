@@ -504,6 +504,11 @@ kbd {
 .wh-item[hidden] { display: none; }
 .wh-item:focus { outline: none; }
 .wh-item .wh-glyph { font-size: 1.15em; line-height: 1; filter: grayscale(0.6) opacity(0.7); transition: filter 0.18s; }
+/* When an artist tab icon replaces the emoji, it sits in the same left slot,
+   a touch bigger than the emoji but still small. It dims/undims with the item
+   exactly like the emoji did (the parent .wh-glyph carries that filter). */
+.wh-item .wh-glyph.has-icon { display: inline-flex; align-items: center; }
+.wh-item .wh-glyph-icon { height: 1.35em; width: auto; display: block; object-fit: contain; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.8)); }
 .wh-item .wh-label { line-height: 1; overflow: hidden; text-overflow: ellipsis; max-width: 42vw; }
 .wh-item .wh-sub {
   margin-left: 0.6rem;

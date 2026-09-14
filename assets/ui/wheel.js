@@ -193,6 +193,32 @@ window.RPWheel = (function () {
       node.appendChild(img);
     }
 
+    /** Replace item `key`'s emoji glyph (left of the label) with an
+     *  (already-confirmed) artist icon, smaller. Keeps the emoji if no icon
+     *  has been uploaded. Idempotent. */
+    setGlyphIcon(key, url) {
+      const i = this.items.findIndex(it => it.key === key);
+      if (i < 0) return;
+      const node = this.nodes[i];
+      if (!node) return;
+      let glyph = node.querySelector('.wh-glyph');
+      if (!glyph) {                       // a tab with no emoji still gets a left slot
+        glyph = document.createElement('span');
+        glyph.className = 'wh-glyph';
+        glyph.setAttribute('aria-hidden', 'true');
+        node.insertBefore(glyph, node.firstChild);
+      }
+      if (glyph.querySelector('.wh-glyph-icon')) return;   // already replaced
+      glyph.textContent = '';                              // drop the emoji
+      glyph.classList.add('has-icon');
+      const img = document.createElement('img');
+      img.className = 'wh-glyph-icon';
+      img.alt = '';
+      img.setAttribute('aria-hidden', 'true');
+      img.src = url;
+      glyph.appendChild(img);
+    }
+
     /** Animated wheel-of-fortune spin to item i: a quick run that overshoots
      *  slightly then settles back. Selects, never activates. */
     spinTo(i) {
