@@ -196,8 +196,20 @@ body:not(.ui-ready) .stage-view .wheel-wrap { opacity: 0; transform: translateX(
 }
 .preview.is-in .pv { opacity: 1; transform: translateY(0); }
 
-.pv-logo { position: relative; z-index: 1; margin-bottom: 0.6rem; }
+.pv-logo { position: relative; z-index: 1; margin-bottom: 0.6rem; display: flex; align-items: center; gap: clamp(0.6rem, 1.7vw, 1.7rem); flex-wrap: nowrap; }
 .pv-logo-img { max-width: min(46vw, 620px); max-height: 30vh; width: auto; height: auto; filter: drop-shadow(0 6px 24px rgba(0,0,0,0.6)); }
+/* Artist tab icon beside the big section title. Sized to track the title;
+   the slot collapses (no phantom gap) until an icon is actually injected. */
+.pv-tabicon { flex: 0 0 auto; display: inline-flex; align-items: center; }
+.pv-tabicon:empty { display: none; }
+.pv-tabicon img {
+  height: clamp(2.4rem, 6.9vw, 6.4rem);
+  width: auto;
+  max-width: 32vw;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.55)) drop-shadow(0 0 18px var(--accent-glow));
+  animation: art-in 0.4s var(--ease-out);
+}
 .pv-word {
   position: relative;
   display: inline-block;
@@ -914,6 +926,7 @@ body.rp-open #theme-bg { display: none; }
   }
   .preview { padding: 1.2rem 1.2rem 0.4rem; justify-content: flex-end; }
   .pv-word { font-size: clamp(2.4rem, 13vw, 4.2rem); }
+  .pv-tabicon img { height: clamp(2rem, 11vw, 3.6rem); }
   .pv-blurb { font-size: 0.9rem; max-width: 100%; }
   .pv-fan { display: none; }
   .pv--game { display: grid; grid-template-columns: auto 1fr; column-gap: 1rem; align-items: center; }

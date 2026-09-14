@@ -113,15 +113,28 @@
     resolveTabIcons();
   }
 
-  // Show an artist tab icon to the right of a tab, but ONLY once it exists.
-  // Probed with fetch (not an <img>), so a missing icon produces no console
-  // 404 and nothing changes until one is uploaded to assets/icons/tab-*.png.
+  // Show an artist tab icon beside the BIG section title in the left preview
+  // (not on the small wheel item), sized up to track the title -- but ONLY
+  // once the file exists. Probed with fetch (not an <img>), so a missing icon
+  // produces no console 404 and nothing shows until one is uploaded to
+  // assets/icons/tab-*.png.
   const tabIconState = new Map();   // url -> true(exists) | false(absent) | 'pending'
+  function setPreviewTabIcon(key, url) {
+    const node = previewCache.get(key);
+    if (!node) return;                                   // not rendered yet; renderHomePreview fills it later
+    const slot = node.querySelector('.pv-tabicon');
+    if (!slot || slot.querySelector('img')) return;      // no slot, or already filled
+    const img = document.createElement('img');
+    img.alt = '';
+    img.setAttribute('aria-hidden', 'true');
+    img.src = url;
+    slot.appendChild(img);
+  }
   function resolveTabIcons() {
     for (const it of homeWheel.items) {
       if (!it.icon) continue;
       const known = tabIconState.get(it.icon);
-      if (known === true) { homeWheel.setItemIcon(it.key, it.icon); continue; }
+      if (known === true) { setPreviewTabIcon(it.key, it.icon); continue; }
       if (known === false || known === 'pending') continue;
       tabIconState.set(it.icon, 'pending');
       // no-cache (revalidate), NOT force-cache: a tab icon uploaded AFTER a
@@ -130,7 +143,7 @@
       fetch(it.icon, { cache: 'no-cache' })
         .then(r => {
           tabIconState.set(it.icon, r.ok);
-          if (r.ok) homeWheel.setItemIcon(it.key, it.icon);
+          if (r.ok) setPreviewTabIcon(it.key, it.icon);
         })
         .catch(() => tabIconState.set(it.icon, false));
     }
@@ -167,7 +180,8 @@
       node.innerHTML =
         `<div class="pv-logo">${logo
           ? `<img class="pv-logo-img" src="${logo}" alt="${esc(it.label)}">`
-          : `<span class="pv-word" data-text="${esc(it.label)}">${esc(it.label)}</span>`}</div>` +
+          : `<span class="pv-word" data-text="${esc(it.label)}">${esc(it.label)}</span>`}` +
+          `<span class="pv-tabicon" aria-hidden="true"></span></div>` +
         `<p class="pv-blurb">${esc(BLURB[it.key] || '')}</p>` +
         `<p class="pv-meta" data-count></p>` +
         (isList ? `<div class="pv-fan" aria-hidden="true"></div>` : '') +
@@ -176,6 +190,7 @@
     }
     homePreview.replaceChildren(node);
     updateHomeCount(it.key);
+    if (it.icon && tabIconState.get(it.icon) === true) setPreviewTabIcon(it.key, it.icon);
     if (LIST[it.key]) fillFan(node, it.key);
     requestAnimationFrame(() => homePreview.classList.add('is-in'));
   }
