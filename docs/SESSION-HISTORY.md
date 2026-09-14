@@ -96,7 +96,7 @@ back from somewhere and are dead — see §5.
 | Games that can never be single-file | 8 — over the 384 MiB ceiling |
 | Emulation ROMs | 98 in the sync folder, sorted into 12 console folders. **The bucket still holds the 98 flat originals too, so `/api/emulation` returns 196** -- ledger #28 |
 | Theme wallpapers | 12, each split into depth layers under `assets/themes/<Folder>/` in the sync folder (33 files, ~27 MB). **Not on R2 until the next normal sync** |
-| Front end | **Wheel interface is LIVE on `main`** (`docs/UI-REDESIGN.md`) — sessions 5a-5j: layers synced, music (0-250%, default 250%, `music.js`), "Pick A Random Game", "Rescan Game Files" (`/api/rescan`), tab icons (`assets/icons/tab-<slug>.png`, probed no-cache), FNAE/manifest fix. Working checkout `C:\claude-code\Red Portal UI\red-portal` |
+| Front end | **Wheel interface is LIVE on `main`** (`docs/UI-REDESIGN.md`) — sessions 5a-5l: layers synced, music (0-250%, default 250%, `music.js`), "Pick A Random Game", "Rescan Game Files" (`/api/rescan`), tab icons (`assets/icons/tab-<slug>.png`, probed no-cache, shown beside the big section title in the left preview), FNAE/manifest fix. Working checkout `C:\claude-code\Red Portal UI\red-portal` |
 | Hardcoded game links in `index.html` | **0** |
 | Requests before the grids appear | **0** (inlined into the HTML) |
 | Launcher page cross-origin isolated | **Yes** — COOP same-origin + COEP credentialless |
@@ -749,6 +749,22 @@ before the icon existed) without revalidating — so `r.ok` was false forever.
 Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
+
+#### Session 5l — tab icons moved beside the big title
+
+The owner clarified (with a screenshot) that the tab icon was in the wrong
+place: it rendered as a small badge on the wheel item next to the little
+"GAMES" label (the "pink box"), but he wanted it **beside the large section
+title in the left preview** (the "blue box", right of the big GAMES word),
+**sized up** to track the title. Moved it: `renderHomePreview` now has a
+`.pv-tabicon` slot inside `.pv-logo`, and `resolveTabIcons` fills it via
+`setPreviewTabIcon(key,url)` (into the cached preview node) instead of
+`homeWheel.setItemIcon` — the `.wh-icon` wheel injection is dropped (the wheel
+method stays, unused). `.pv-logo` is a flex row; `.pv-tabicon img` height is a
+`clamp` that tracks the title, and `.pv-tabicon:empty` collapses so there's no
+gap until an icon exists. Same `tab-<slug>.png` filesystem and no-cache probe —
+no artist changes. Verified locally: icon 102px vs title 112px, right of the
+word, 0 `.wh-icon`. Commit `96f15f9`, asset version `?v=20260914f`.
 
 #### Session 5j — renamed misnamed icons
 
