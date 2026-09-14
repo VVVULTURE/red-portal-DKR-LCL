@@ -96,7 +96,7 @@ back from somewhere and are dead — see §5.
 | Games that can never be single-file | 8 — over the 384 MiB ceiling |
 | Emulation ROMs | 98 in the sync folder, sorted into 12 console folders. **The bucket still holds the 98 flat originals too, so `/api/emulation` returns 196** -- ledger #28 |
 | Theme wallpapers | 12, each split into depth layers under `assets/themes/<Folder>/` in the sync folder (33 files, ~27 MB). **Not on R2 until the next normal sync** |
-| Front end | Wheel interface (`docs/UI-REDESIGN.md`), on branch `ui-redesign` pending the layer sync |
+| Front end | **Wheel interface is LIVE on `main`** (`docs/UI-REDESIGN.md`) — sessions 5a-5j: layers synced, music (0-250%, default 250%, `music.js`), "Pick A Random Game", "Rescan Game Files" (`/api/rescan`), tab icons (`assets/icons/tab-<slug>.png`, probed no-cache), FNAE/manifest fix. Working checkout `C:\claude-code\Red Portal UI\red-portal` |
 | Hardcoded game links in `index.html` | **0** |
 | Requests before the grids appear | **0** (inlined into the HTML) |
 | Launcher page cross-origin isolated | **Yes** — COOP same-origin + COEP credentialless |
@@ -739,6 +739,16 @@ local folder.
   exact filenames and what's already done (25 icons exist; 196 still needed).
   Regenerate with `C:\claude-code\Red Portal UI\gather-assets.mjs` then
   `gen-asset-list.mjs` whenever the game list changes.
+
+#### Session 5k — tab icons weren't appearing (force-cache 404)
+
+The artist uploaded `tab-*.png` icons to R2 with correct names, but they never
+showed on the wheel. Cause: `resolveTabIcons()` probed with
+`fetch(url, {cache:'force-cache'})`, which returns a **stale cached 404** (from
+before the icon existed) without revalidating — so `r.ok` was false forever.
+Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
+probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
+use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
 #### Session 5j — renamed misnamed icons
 
