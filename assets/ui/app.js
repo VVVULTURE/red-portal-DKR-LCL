@@ -124,7 +124,10 @@
       if (known === true) { homeWheel.setItemIcon(it.key, it.icon); continue; }
       if (known === false || known === 'pending') continue;
       tabIconState.set(it.icon, 'pending');
-      fetch(it.icon, { cache: 'force-cache' })
+      // no-cache (revalidate), NOT force-cache: a tab icon uploaded AFTER a
+      // visitor first loaded the site would otherwise be blocked by the 404
+      // that got cached before it existed.
+      fetch(it.icon, { cache: 'no-cache' })
         .then(r => {
           tabIconState.set(it.icon, r.ok);
           if (r.ok) homeWheel.setItemIcon(it.key, it.icon);
