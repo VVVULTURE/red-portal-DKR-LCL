@@ -241,11 +241,40 @@ header::before {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  filter: drop-shadow(0 0 8px rgba(255, 32, 32, 0.38));
+  filter: drop-shadow(0 0 8px var(--accent-glow));
   transition: filter var(--t-std) var(--ease-std);
 }
-.logo:hover { filter: drop-shadow(0 0 16px rgba(255, 32, 32, 0.7)); }
-.logo img { height: 52px; width: auto; }
+.logo:hover { filter: drop-shadow(0 0 16px var(--accent)); }
+.logo .rp-logo { height: 52px; }
+
+/* Theme-tinted logo. Two stacked layers cropped from the same artwork:
+   a black-outline "ink" image on top, and an accent-filled "mask" layer
+   behind it (the white areas of the source, painted with var(--accent)).
+   So the letter fills + glow follow the theme colour while the outlines
+   stay black. Swap the two PNGs to change the logo; no code change. */
+.rp-logo {
+  position: relative;
+  display: inline-block;
+  aspect-ratio: 1242 / 772;   /* matches the cropped source, so one of width/height is enough */
+  line-height: 0;
+}
+.rp-logo-ink {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.logo .rp-logo-ink, .rp-logo .rp-logo-ink { width: 100%; height: 100%; }  /* beat the generic .logo img rule if any */
+.rp-logo-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--accent);
+  -webkit-mask: url("assets/logo/logo-mask.png?v=20260914g") center / contain no-repeat;
+          mask: url("assets/logo/logo-mask.png?v=20260914g") center / contain no-repeat;
+}
 
 /* ── Nav ── */
 nav {
@@ -1425,7 +1454,10 @@ footer {
      before anything else and never flashes the UI first.
 ═══════════════════════════════ -->
 <div id="intro-overlay" aria-hidden="true">
-  <img id="intro-logo" src="https://assets.redportal.dpdns.org/assets/logo/logo.png" alt="Red Portal" />
+  <span id="intro-logo" class="rp-logo" role="img" aria-label="Red Portal">
+    <span class="rp-logo-fill"></span>
+    <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914g" alt="" />
+  </span>
 </div>
 <script>
   (function () {
@@ -1485,7 +1517,10 @@ footer {
 <header role="banner">
   <!-- Logo → always navigates to Games section -->
   <a class="logo" href="#games" data-section="games" aria-label="Red Portal — go to Games">
-    <img src="https://assets.redportal.dpdns.org/assets/logo/logo.png" alt="Red Portal" width="52" height="52" />
+    <span class="rp-logo" role="img" aria-label="Red Portal">
+      <span class="rp-logo-fill"></span>
+      <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914g" alt="" />
+    </span>
   </a>
 
   <button type="button" class="crumb-back" id="btnBack" hidden aria-label="Back to the main menu">
