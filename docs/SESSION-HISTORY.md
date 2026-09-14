@@ -96,7 +96,7 @@ back from somewhere and are dead — see §5.
 | Games that can never be single-file | 8 — over the 384 MiB ceiling |
 | Emulation ROMs | 98 in the sync folder, sorted into 12 console folders. **The bucket still holds the 98 flat originals too, so `/api/emulation` returns 196** -- ledger #28 |
 | Theme wallpapers | 12, each split into depth layers under `assets/themes/<Folder>/` in the sync folder (33 files, ~27 MB). **Not on R2 until the next normal sync** |
-| Front end | **Wheel interface is LIVE on `main`** (`docs/UI-REDESIGN.md`) — sessions 5a-5l: layers synced, music (0-250%, default 250%, `music.js`), "Pick A Random Game", "Rescan Game Files" (`/api/rescan`), tab icons (`assets/icons/tab-<slug>.png`, probed no-cache, shown beside the big section title in the left preview), FNAE/manifest fix. Working checkout `C:\claude-code\Red Portal UI\red-portal` |
+| Front end | **Wheel interface is LIVE on `main`** (`docs/UI-REDESIGN.md`) — sessions 5a-5m: layers synced, music (0-250%, default 250%, `music.js`; autoplay-on-load best-effort + any-gesture start), "Pick A Random Game", "Rescan Game Files" (`/api/rescan`), tab icons (`assets/icons/tab-<slug>.png`, probed no-cache — big beside the section title AND small in place of the wheel emoji), theme-tinted logo (`assets/logo/logo-ink|mask.png`, white areas follow `--accent`), FNAE/manifest fix. Working checkout `C:\claude-code\Red Portal UI\red-portal` |
 | Hardcoded game links in `index.html` | **0** |
 | Requests before the grids appear | **0** (inlined into the HTML) |
 | Launcher page cross-origin isolated | **Yes** — COOP same-origin + COEP credentialless |
@@ -749,6 +749,38 @@ before the icon existed) without revalidating — so `r.ok` was false forever.
 Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
+
+#### Session 5m — music autoplay, wheel emoji→icon, theme-tinted logo
+
+Three owner requests:
+
+1. **Music "one click, never again."** Browsers reset the autoplay gate on
+   every page load, so JS *cannot* permanently bypass the gesture requirement —
+   that's a browser/user setting, not something a site controls. Best effort
+   shipped: `attemptAutoplay()` runs on load (in `setSource`) and starts the
+   theme with ZERO clicks whenever the browser already trusts the site (its
+   Media Engagement Index has built up over repeat visits, or the user set
+   Sound=Allow for `redportal.dpdns.org` in Chrome). The gesture fallback now
+   unlocks on ANY first interaction (pointer/mouse/key/touch/wheel/scroll/click,
+   capture-phase), so the user never hunts for a button. For guaranteed
+   zero-click forever, the user sets the site's Sound permission to Allow.
+2. **Wheel emoji → tab icon.** The confirmed `tab-<slug>.png` now also replaces
+   the emoji glyph on the wheel item (small, left of the label) via
+   `RPWheel.setGlyphIcon`, on top of the big icon beside the section title (5l).
+   Tabs with no uploaded icon keep their emoji. `applyTabIcon()` does both from
+   the same no-cache probe on site enter.
+3. **Theme-tinted logo.** Owner supplied a white-fill logo
+   (`C:\claude-code\Red Portal UI\logo_altered.png`, 1254² RGB with a black
+   *design* background). Built a two-layer masked logo in `assets/logo/`:
+   `logo-ink.png` (black outlines, on top) + `logo-mask.png` (white areas =
+   letter fills + glow) used as a CSS mask over a `var(--accent)` fill. So the
+   fills+glow follow the theme (`applyTheme` sets `--accent` per theme:
+   Cracked=white, Rain=blue, Summer=yellow, …) while outlines stay black. The
+   black bg was flood-filled to transparency. New reusable `.rp-logo` component;
+   header + intro overlay both use it; logos now load same-origin from the repo,
+   not R2's `logo.png`. Regenerate the two PNGs with the PIL flood-fill+split
+   script (in the 5m transcript) if the source logo changes. Commits `c1b1ee3`
+   (music+wheel, `?v=20260914g`) and `a04c758` (logo).
 
 #### Session 5l — tab icons moved beside the big title
 
