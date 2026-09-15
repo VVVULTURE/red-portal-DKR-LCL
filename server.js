@@ -86,7 +86,10 @@ const SELF_PING_ENABLED       = (process.env.SELF_PING_ENABLED || 'true').toLowe
 const SELF_PING_URL           = process.env.SELF_PING_URL || 'https://redportal.dpdns.org/health';
 const SELF_PING_INTERVAL_MS   = parseInt(process.env.SELF_PING_INTERVAL_MS || String(10 * 60 * 1000), 10); // 10 minutes
 
-const R2_PUBLIC_DOMAIN   = process.env.R2_PUBLIC_DOMAIN || '';
+// Canonical public asset host as the default so the manifest fast-path (and
+// asset URLs) keep working even if the env var is ever missing on a deploy.
+// This is a PUBLIC hostname, not a secret. Override via env if it ever moves.
+const R2_PUBLIC_DOMAIN   = process.env.R2_PUBLIC_DOMAIN || 'assets.redportal.dpdns.org';
 const R2_BACKED_PREFIXES = (process.env.R2_BACKED_PREFIXES || 'Games,Testing,Apps,Movies,Emulation')
   .split(',')
   .map(s => s.trim())
@@ -116,7 +119,7 @@ function r2BackedPrefix(pathname) {
 const R2_ACCOUNT_ID          = process.env.R2_ACCOUNT_ID || '';
 const R2_LIST_ACCESS_KEY_ID  = process.env.R2_LIST_ACCESS_KEY_ID || '';
 const R2_LIST_SECRET_ACCESS_KEY = process.env.R2_LIST_SECRET_ACCESS_KEY || '';
-const R2_BUCKET               = process.env.R2_BUCKET || '';
+const R2_BUCKET               = process.env.R2_BUCKET || 'red-portal-assets';  // bucket name (public, not a secret)
 
 let s3Client = null;
 function getS3Client() {

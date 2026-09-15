@@ -3274,11 +3274,14 @@ footer {
   /* ═══════════════════════════════════════════════════════════════
      TUTORIALS CONFIG
      To add a new tutorial:
-       1. Upload the .mp4 to assets/tutorials/ in the onrender repo
+       1. Add the .mp4 to assets/tutorials/ in the repo (served by the app)
        2. Add a { id, title, file } entry below
      The card is generated automatically — no HTML editing needed.
   ═══════════════════════════════════════════════════════════════ */
-  const TUTORIALS_BASE = 'https://red-portal-dkr-lcl.onrender.com/assets/tutorials/';
+  // Relative to the site's own origin, so tutorial videos are served by
+  // whatever host the site is on (redportal.dpdns.org in production) and
+  // NEVER a hardcoded deployment URL.
+  const TUTORIALS_BASE = 'assets/tutorials/';
 
   const TUTORIALS = [
     { id: 'bookmark', title: 'Bookmark', file: 'bookmark.mp4' },
