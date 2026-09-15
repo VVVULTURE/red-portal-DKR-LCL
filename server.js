@@ -1643,6 +1643,16 @@ async function handleR2Status(req, res) {
 
   const result = { configured, clientCreated: false };
 
+  // Diagnostic: which relevant env var NAMES the running process actually sees,
+  // and whether each has a value (length only — never the secret itself). This
+  // catches the usual culprits: a name typo, an empty value / broken secret
+  // reference, or the vars being on a different service. Names only + lengths
+  // are safe to expose.
+  result.envSeen = Object.keys(process.env)
+    .filter(k => /^(R2_|BOT_|DISCORD|GUILD|GITHUB|REQUEST|SELF_PING)/.test(k))
+    .sort()
+    .reduce((o, k) => { o[k] = process.env[k] ? `set (len ${process.env[k].length})` : 'EMPTY'; return o; }, {});
+
   const manifestStarted = Date.now();
   try {
     const manifest = (await fetchManifest()).data; // bypass cache -- always a fresh check here
