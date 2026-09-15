@@ -750,6 +750,46 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5n — moved to Koyeb, R2-served, request bot merged in
+
+**Hosting: Render → Koyeb.** Render's free tier hit its usage cap and suspended;
+moved the same Docker app to Koyeb's **free** instance (one free web service per
+org; 512 MB/0.1 vCPU; 100 GB/mo egress; **scales to zero after 1 h idle** — keep
+alive with SELF_PING + an external /health monitor). **R2 stays** (assets served
+from `assets.redportal.dpdns.org`, unchanged). Test URL:
+`sound-constancia-red-portal-*.koyeb.app`.
+
+**Fixes shipped to main:**
+- Stale onrender URL: `TUTORIALS_BASE` in index.html was hardcoded to the
+  onrender host → tutorial videos 404'd once Render suspended. Now relative
+  (`assets/tutorials/`), served from the site's own origin.
+- `server.js` now defaults `R2_PUBLIC_DOMAIN`→`assets.redportal.dpdns.org` and
+  `R2_BUCKET`→`red-portal-assets` (both PUBLIC) so the manifest fast-path
+  (Games/Testing/Apps) works even if those env vars are missing on a deploy.
+- **Music autostart bug:** `attemptAutoplay()`'s `audio.play()` resolved into a
+  SUSPENDED AudioContext (silent) and set `unlocked=true`, so the first real
+  gesture returned without resuming the context — music only started after a
+  Settings off/on. Rewrote to track `started` (audible only when element playing
+  AND context running) and keep gesture listeners live until truly audible.
+  Verified: plays+loops after one interaction, no toggle. (asset ver `h`)
+
+**Request bot merged into the server** (PR #4, `bot/`), so it needs no separate
+paid Koyeb service. Fully env-gated (dormant unless its vars are set); static
+crawl only (Playwright not a dep — the crawler already falls back); Python
+`sync_to_r2.py` ported to Node `@aws-sdk` (additive upload + manifest merge,
+NEVER prunes); secrets env-only. Removed the hardcoded `BOT_SECRET`/`BOT_URL`
+from server.js. **Leaked creds to ROTATE:** the GitHub PAT, R2 keys, Discord
+webhook, and BOT_SECRET that were in local config/`.env` (and BOT_SECRET was in
+the public repo).
+
+**Known-open (env config, not code):** on Koyeb `/api/r2-status` still shows
+`R2_ACCOUNT_ID`/`R2_LIST_ACCESS_KEY_ID`/`R2_LIST_SECRET_ACCESS_KEY` = false →
+`clientCreated:false` → **Emulation + Movies empty** (they need the S3 client;
+Games/Testing/Apps run off the manifest). Fix is setting those three env vars
+with the EXACT `R2_LIST_` names and redeploying. **Domain:** Cloudflare still
+had dead Render A records at the apex + a mis-named `redportal.redportal` CNAME;
+fix is delete those, add an apex (`@`) CNAME → the koyeb.app target, DNS-only.
+
 #### Session 5m — music autoplay, wheel emoji→icon, theme-tinted logo
 
 Three owner requests:
