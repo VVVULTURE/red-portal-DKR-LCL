@@ -272,8 +272,8 @@ header::before {
   inset: 0;
   z-index: 0;
   background: var(--accent);
-  -webkit-mask: url("assets/logo/logo-mask.png?v=20260914h") center / contain no-repeat;
-          mask: url("assets/logo/logo-mask.png?v=20260914h") center / contain no-repeat;
+  -webkit-mask: url("assets/logo/logo-mask.png?v=20260914i") center / contain no-repeat;
+          mask: url("assets/logo/logo-mask.png?v=20260914i") center / contain no-repeat;
 }
 
 /* ── Nav ── */
@@ -1443,7 +1443,7 @@ footer {
   </style>
   <!-- The console-style presentation layer (wheel, scene, transitions).
        Everything above stays as it was; assets/ui/ only adds to it. -->
-  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260914h" />
+  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260914i" />
 </head>
 <body>
 
@@ -1456,7 +1456,7 @@ footer {
 <div id="intro-overlay" aria-hidden="true">
   <span id="intro-logo" class="rp-logo" role="img" aria-label="Red Portal">
     <span class="rp-logo-fill"></span>
-    <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914h" alt="" />
+    <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914i" alt="" />
   </span>
 </div>
 <script>
@@ -1519,7 +1519,7 @@ footer {
   <a class="logo" href="#games" data-section="games" aria-label="Red Portal — go to Games">
     <span class="rp-logo" role="img" aria-label="Red Portal">
       <span class="rp-logo-fill"></span>
-      <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914h" alt="" />
+      <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914i" alt="" />
     </span>
   </a>
 
@@ -2187,7 +2187,7 @@ footer {
       id:    'Cracked',
       name:  'Cracked',
       color: '#ffffff',
-      bg:    'https://assets.redportal.dpdns.org/assets/themes/Cracked.png',
+      bg:    'https://assets.redportal.dpdns.org/assets/themes/Cracked/Cracked-preview.png',
       folder: 'Cracked',
       layers: ['cracked-3.png', 'cracked-2.png', 'cracked-1.png'],
       depth:  [1, 0.5, 0.25],
@@ -2244,6 +2244,15 @@ footer {
       bg:    null,
       folder: 'GeometryDash',
       layers: ['geometrydash-3.png', 'geometrydash-2.png', 'geometrydash-1.png'],
+      depth:  [1, 0.5, 0.25],
+    },
+    {
+      id:    'Dreamcore',
+      name:  'Dreamcore',
+      color: '#2E91DE',
+      bg:    'https://assets.redportal.dpdns.org/assets/themes/Dreamcore/settingspreview.png',
+      folder: 'Dreamcore',
+      layers: ['Dreamcore-3.png', 'Dreamcore-2.png', 'Dreamcore-1.png'],
       depth:  [1, 0.5, 0.25],
     },
     /* ── Add more themes below ──────────────────────────────────
@@ -3326,6 +3335,23 @@ footer {
     const video  = card.querySelector('.tutorial-video');
     const fsBtn  = card.querySelector('.tutorial-fullscreen-btn');
 
+    // Auto-captions: attach a matching .vtt (if it exists and has cues) as a
+    // same-origin blob track. Silent tutorials simply get none.
+    (function attachCaptions() {
+      const srcEl = video.querySelector('source');
+      const src = (srcEl && srcEl.getAttribute('src')) || video.currentSrc || '';
+      const vttUrl = src.replace(/\.[a-z0-9]+(\?.*)?$/i, '.vtt$1');
+      if (!src || vttUrl === src) return;
+      fetch(vttUrl).then(r => (r.ok ? r.text() : null)).then(txt => {
+        if (!txt || !/-->/.test(txt)) return;
+        const track = document.createElement('track');
+        track.kind = 'captions'; track.label = 'English'; track.srclang = 'en'; track.default = true;
+        track.src = URL.createObjectURL(new Blob([txt], { type: 'text/vtt' }));
+        video.appendChild(track);
+        try { const tt = video.textTracks[video.textTracks.length - 1]; if (tt) tt.mode = 'showing'; } catch (_) {}
+      }).catch(() => {});
+    })();
+
     function togglePlay() {
       if (video.paused || video.ended) {
         // Pause every other tutorial so audio doesn't overlap
@@ -3343,9 +3369,11 @@ footer {
       togglePlay();
     });
 
-    video.addEventListener('play',  () => { card.classList.add('playing'); video.controls = true; });
-    video.addEventListener('pause', () => { card.classList.remove('playing'); });
-    video.addEventListener('ended', () => { card.classList.remove('playing'); });
+    const anyVideoPlaying = () => [...document.querySelectorAll('.tutorial-video')].some(v => !v.paused && !v.ended);
+    const unduckIfIdle = () => { if (window.RPMusic && !anyVideoPlaying()) window.RPMusic.duck(false); };
+    video.addEventListener('play',  () => { card.classList.add('playing'); video.controls = true; if (window.RPMusic) window.RPMusic.duck(true); });
+    video.addEventListener('pause', () => { card.classList.remove('playing'); unduckIfIdle(); });
+    video.addEventListener('ended', () => { card.classList.remove('playing'); unduckIfIdle(); });
 
     fsBtn.addEventListener('click', e => {
       e.stopPropagation();
@@ -3381,6 +3409,26 @@ footer {
       const video = card.querySelector('.tutorial-video');
       const fsBtn = card.querySelector('.tutorial-fullscreen-btn');
 
+      // Auto-captions: look for a .vtt next to the video (same path, .vtt
+      // extension). If it exists AND has real cues, attach it as a SAME-ORIGIN
+      // blob <track> — so a cross-origin (R2) caption file needs no crossorigin
+      // on the <video> and can't affect playback. Videos with no captions (e.g.
+      // silent screen-recordings) simply show none.
+      (function attachCaptions() {
+        const srcEl = video.querySelector('source');
+        const src = (srcEl && srcEl.getAttribute('src')) || video.currentSrc || '';
+        const vttUrl = src.replace(/\.[a-z0-9]+(\?.*)?$/i, '.vtt$1');
+        if (!src || vttUrl === src) return;
+        fetch(vttUrl).then(r => (r.ok ? r.text() : null)).then(txt => {
+          if (!txt || !/-->/.test(txt)) return;   // absent or no cues → no captions
+          const track = document.createElement('track');
+          track.kind = 'captions'; track.label = 'English'; track.srclang = 'en'; track.default = true;
+          track.src = URL.createObjectURL(new Blob([txt], { type: 'text/vtt' }));
+          video.appendChild(track);
+          try { const tt = video.textTracks[video.textTracks.length - 1]; if (tt) tt.mode = 'showing'; } catch (_) {}
+        }).catch(() => {});
+      })();
+
       function togglePlay() {
         if (video.paused || video.ended) {
           cards.forEach(o => { if (o !== card) o.querySelector('.tutorial-video').pause(); });
@@ -3394,9 +3442,14 @@ footer {
         if (e.target.closest('.tutorial-fullscreen-btn')) return;
         togglePlay();
       });
-      video.addEventListener('play',  () => { card.classList.add('playing'); video.controls = true; });
-      video.addEventListener('pause', () => card.classList.remove('playing'));
-      video.addEventListener('ended', () => card.classList.remove('playing'));
+      // Duck the background music while a video (movie/tutorial) is playing,
+      // and bring it back only once nothing is playing — so switching between
+      // videos doesn't flicker the music back on.
+      const anyVideoPlaying = () => [...document.querySelectorAll('.tutorial-video')].some(v => !v.paused && !v.ended);
+      const unduckIfIdle = () => { if (window.RPMusic && !anyVideoPlaying()) window.RPMusic.duck(false); };
+      video.addEventListener('play',  () => { card.classList.add('playing'); video.controls = true; if (window.RPMusic) window.RPMusic.duck(true); });
+      video.addEventListener('pause', () => { card.classList.remove('playing'); unduckIfIdle(); });
+      video.addEventListener('ended', () => { card.classList.remove('playing'); unduckIfIdle(); });
 
       fsBtn.addEventListener('click', e => {
         e.stopPropagation();
@@ -3498,12 +3551,12 @@ footer {
      controller last. They are plain scripts so a blob-wrapped copy of this
      page (the launcher case, which injects <base>) resolves them the same
      way it resolves /api/*. -->
-<script src="assets/ui/wheel.js?v=20260914h"></script>
-<script src="assets/ui/scene.js?v=20260914h"></script>
-<script src="assets/ui/sfx.js?v=20260914h"></script>
-<script src="assets/ui/music.js?v=20260914h"></script>
-<script src="assets/ui/art.js?v=20260914h"></script>
-<script src="assets/ui/settings.js?v=20260914h"></script>
-<script src="assets/ui/app.js?v=20260914h"></script>
+<script src="assets/ui/wheel.js?v=20260914i"></script>
+<script src="assets/ui/scene.js?v=20260914i"></script>
+<script src="assets/ui/sfx.js?v=20260914i"></script>
+<script src="assets/ui/music.js?v=20260914i"></script>
+<script src="assets/ui/art.js?v=20260914i"></script>
+<script src="assets/ui/settings.js?v=20260914i"></script>
+<script src="assets/ui/app.js?v=20260914i"></script>
 </body>
 </html>

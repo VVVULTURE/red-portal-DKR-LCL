@@ -34,6 +34,7 @@ window.RPMusic = (function () {
   let audio = null;
   let ctx = null, gainNode = null, graphTried = false;
   let started = false;   // true only once sound is ACTUALLY coming out
+  let ducked = false;    // temporarily paused for a video, WITHOUT changing enabled
 
   function ensureAudio() {
     if (audio || !url) return;
@@ -132,6 +133,19 @@ window.RPMusic = (function () {
     document.dispatchEvent(new CustomEvent('rp:music', { detail: { enabled, volume: vol } }));
   }
 
+  /** Temporarily pause the theme (e.g. while a movie/video plays) and resume it
+   *  afterward — WITHOUT changing the persisted on/off. duck(true) pauses only
+   *  if music is actually playing; duck(false) resumes only what was ducked and
+   *  only if the user still has music enabled. */
+  function duck(on) {
+    if (on) {
+      if (enabled && audio && !audio.paused) { audio.pause(); ducked = true; }
+    } else if (ducked) {
+      ducked = false;
+      if (enabled) play();   // called from the click that stopped the video → gesture context, resumes cleanly
+    }
+  }
+
   /** Point the loop at a real audio file (from art-manifest.json). */
   function setSource(u) {
     if (!u || u === url) return;
@@ -141,7 +155,7 @@ window.RPMusic = (function () {
   }
 
   return {
-    setEnabled, setVolume, setSource,
+    setEnabled, setVolume, setSource, duck,
     get enabled() { return enabled; },
     get volume() { return vol; },
   };
