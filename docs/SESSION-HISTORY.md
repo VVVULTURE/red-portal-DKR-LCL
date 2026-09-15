@@ -750,6 +750,32 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5o — music ducking, auto-captions, Dreamcore theme
+
+- **Music ducks for video:** `RPMusic.duck(on)` temporarily pauses the theme
+  while a movie/tutorial plays and resumes it after — WITHOUT changing the
+  persisted on/off. Wired into BOTH video paths (the inline `_tutorialCards`
+  block and `wireVideoCards` for movies; note they're two separate blocks —
+  edit both). Resume only fires once no `.tutorial-video` is still playing.
+- **Auto-captions (Whisper):** each video attaches a matching `.vtt` (same path,
+  `.vtt` ext) as a SAME-ORIGIN blob `<track>`, only if it exists and has real
+  cues — so a cross-origin (R2) caption needs no `crossorigin` on the `<video>`
+  and can't affect playback; silent videos show none. Generated with
+  openai-whisper `small.en` (installed here, ~20× realtime; ffmpeg present).
+  Tutorials are SILENT screen-recordings → no captions (Whisper hallucinated
+  "Oh, good." on the music, so don't caption them). Movie `.vtt`s are generated
+  from the R2 copies and uploaded to `Movies/<name>.vtt` (the local sync-folder
+  Movies vanished mid-session; pulled from R2 instead).
+- **Themes:** added **Dreamcore** to `THEMES` (folder `Dreamcore`, layers
+  `Dreamcore-3/2/1.png`, depth `[1,0.5,0.25]`, accent `#2E91DE` sampled from its
+  preview, `bg` = `Dreamcore/settingspreview.png`); pointed **Cracked** `bg` at
+  the new `Cracked/Cracked-preview.png` for its settings thumbnail. Asset ver `i`.
+- **Diagnostic:** `/api/r2-status` now also returns `envSeen` (relevant env var
+  NAMES + lengths, never values) — it showed `envSeen: {}`, proving the Koyeb
+  env vars still aren't on the running service (a Koyeb config problem — set them
+  as PLAINTEXT on the `sound-constancia` service and Deploy). Still the open
+  blocker for Emulation/Movies + the request form.
+
 #### Session 5n — moved to Koyeb, R2-served, request bot merged in
 
 **Hosting: Render → Koyeb.** Render's free tier hit its usage cap and suspended;
