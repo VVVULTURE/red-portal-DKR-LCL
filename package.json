@@ -13,6 +13,7 @@
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1109.0",
+    "discord.js": "^14.26.4",
     "@mercuryworkshop/libcurl-transport": "^2.0.5",
     "@mercuryworkshop/proxy-transports": "^1.0.2",
     "@mercuryworkshop/scramjet": "^2.0.67-alpha.2",

@@ -51,6 +51,10 @@ const scramjetUtilsPath      = path.dirname(require.resolve('@mercuryworkshop/sc
 const libcurlPath = path.dirname(require.resolve('@mercuryworkshop/libcurl-transport'));
 const { server: wispServer, logging: wispLogging } = require('@mercuryworkshop/wisp-js/server');
 
+// Merged Red Portal request bot. Entirely gated on its own env vars — if they
+// aren't set, every call below is a safe no-op and the site is unaffected.
+const bot = require('./bot');
+
 wispLogging.set_level(wispLogging.NONE);
 Object.assign(wispServer.options, {
   allow_udp_streams: false,
@@ -60,10 +64,13 @@ Object.assign(wispServer.options, {
 /* ── Config ────────────────────────────────────────────────────── */
 const PORT       = parseInt(process.env.PORT || '3001', 10);
 const STATIC     = __dirname;           // serve files from the same folder as server.js
-// URL of the bot's HTTP listener, e.g. http://192.168.1.50:3000/post-request
-const BOT_URL    = process.env.BOT_URL    || 'https://boneless-parcel-reputable.ngrok-free.dev/post-request';
-// Shared secret — must match BOT_SECRET in bot.js to prevent unauthorized posts
-const BOT_SECRET = process.env.BOT_SECRET || '0fffaa699dd1422eac9cf419d1649f8ff9b346d9594450c51987ba8a61003ba3';
+// Optional external bot HTTP listener (legacy forward path). Empty by default —
+// the merged in-process bot (see ./bot) is the normal path now. PUBLIC REPO:
+// never hardcode a value here; set BOT_URL as an env var if you use the forward.
+const BOT_URL    = process.env.BOT_URL    || '';
+// Shared secret for the legacy forward path only. Env-only — no value in the
+// repo. (The in-process bot needs no shared secret; it's a direct call.)
+const BOT_SECRET = process.env.BOT_SECRET || '';
 
 /* ── R2-backed folders ──────────────────────────────────────────
    Games/, Testing/ and Apps/ now live in Cloudflare R2, not on this
@@ -1152,12 +1159,6 @@ async function handleBugReport(req, res) {
     return res.end(JSON.stringify({ error: 'Please describe the problem.' }));
   }
 
-  if (!BOT_URL) {
-    console.error('  ✗  BOT_URL is not set — report dropped.');
-    res.writeHead(503, { 'content-type': 'application/json', ...CORS_HEADERS });
-    return res.end(JSON.stringify({ error: 'Bot not configured on server' }));
-  }
-
   const payload = {
     summary,
     kind:      REPORT_KINDS.includes(body.kind) ? body.kind : 'Other',
@@ -1170,6 +1171,25 @@ async function handleBugReport(req, res) {
     userAgent: (req.headers['user-agent'] || '').toString().slice(0, 200) || null,
   };
 
+  // Preferred: the merged in-process bot posts it straight to Discord.
+  if (bot.reportReady) {
+    try {
+      await bot.handleReport(payload);
+      res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+      return res.end(JSON.stringify({ ok: true }));
+    } catch (err) {
+      console.error('  ✗  In-process report failed:', err.message);
+      res.writeHead(502, { 'content-type': 'application/json', ...CORS_HEADERS });
+      return res.end(JSON.stringify({ error: 'Could not post the report.' }));
+    }
+  }
+
+  // Fallback: forward to an external bot (pre-merge behavior).
+  if (!BOT_URL) {
+    console.error('  ✗  No in-process bot and BOT_URL is not set — report dropped.');
+    res.writeHead(503, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ error: 'Bot not configured on server' }));
+  }
   try {
     await forwardToBot(payload, '/post-report');
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
@@ -1209,12 +1229,6 @@ async function handleGameRequest(req, res) {
     return res.end(JSON.stringify({ error: 'name is required' }));
   }
 
-  if (!BOT_URL) {
-    console.error('  ✗  BOT_URL is not set — request dropped.');
-    res.writeHead(503, { 'content-type': 'application/json', ...CORS_HEADERS });
-    return res.end(JSON.stringify({ error: 'Bot not configured on server' }));
-  }
-
   const payload = {
     name,
     type:      ['Game', 'Service', 'Other'].includes(body.type) ? body.type : 'Game',
@@ -1222,6 +1236,19 @@ async function handleGameRequest(req, res) {
     submitter: body.submitter  ? body.submitter.toString().trim().slice(0, 80) : null,
   };
 
+  // Preferred: the merged in-process bot handles it directly (no external hop).
+  if (bot.pipelineReady) {
+    bot.handleRequest(payload);   // fire-and-forget; it notifies Discord as it runs
+    res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ ok: true }));
+  }
+
+  // Fallback: forward to an external bot over HTTP (the pre-merge behavior).
+  if (!BOT_URL) {
+    console.error('  ✗  No in-process bot and BOT_URL is not set — request dropped.');
+    res.writeHead(503, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end(JSON.stringify({ error: 'Bot not configured on server' }));
+  }
   try {
     await forwardToBot(payload);
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
@@ -1936,6 +1963,11 @@ server.listen(PORT, '0.0.0.0', () => {
   }
   console.log('');
   console.log('  Press Ctrl+C to stop.');
+
+  /* Start the merged Discord request bot (slash command). No-op + logs if its
+     env vars aren't set; isolated so it can never take the web server down. */
+  bot.startGateway().catch(e => console.warn(`  ⚠  Bot gateway not started: ${e.message}`));
+  if (bot.pipelineReady) console.log('  🤖  Request bot: pipeline ready (requests handled in-process).');
 
   /* Build the grid snapshot now rather than on the first visitor.
      Without it the first page load after a deploy is the one that pays

@@ -25,3 +25,7 @@ node_modules_pw/
 
 __pycache__/
 *.pyc
+
+# Secrets — never commit
+.env
+.env.*
