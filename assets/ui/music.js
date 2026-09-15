@@ -33,7 +33,7 @@ window.RPMusic = (function () {
   let url = null;
   let audio = null;
   let ctx = null, gainNode = null, graphTried = false;
-  let unlocked = false;
+  let started = false;   // true only once sound is ACTUALLY coming out
 
   function ensureAudio() {
     if (audio || !url) return;
@@ -69,46 +69,58 @@ window.RPMusic = (function () {
     else if (audio) audio.volume = Math.min(1, vol / 100);
   }
 
-  function tryPlay() {
-    if (!enabled || !url || !unlocked) return;
+  /** True only when audio is genuinely audible: element playing AND, if the
+   *  Web Audio graph is in use, its context actually running (not suspended). */
+  function audiblyPlaying() {
+    return !!audio && !audio.paused && (!ctx || ctx.state === 'running');
+  }
+
+  /** Attempt to start (or resume) playback. Safe to call repeatedly; it only
+   *  marks `started` once sound can truly come out. MUST be called from within
+   *  a user-gesture handler to succeed the first time (browser autoplay gate). */
+  function play() {
+    if (!enabled || !url) return;
     ensureAudio();
     buildGraph();
     if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
     const p = audio && audio.play();
-    if (p && p.catch) p.catch(() => {});
+    if (p && p.then) {
+      // Only count it as started if the graph's context is actually running.
+      // A resolved play() into a SUSPENDED context is silent — the old bug
+      // was treating that as "unlocked", which then swallowed the real gesture.
+      p.then(() => { if (!ctx || ctx.state === 'running') started = true; }).catch(() => {});
+    }
   }
 
-  // Best-effort autoplay on load, BEFORE any gesture. Browsers reset the
-  // autoplay gate on every page load, so JS cannot permanently bypass it --
-  // but if the browser already trusts this site (its Media Engagement Index
-  // has built up over repeat visits, or the user set Sound = Allow for it)
-  // this plays with ZERO clicks. If it's blocked, it fails silently and the
-  // gesture listeners below still catch the very first interaction.
-  function attemptAutoplay() {
-    if (!enabled || !url || unlocked) return;
-    ensureAudio();
-    buildGraph();
-    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const p = audio && audio.play();
-    if (p && p.then) p.then(() => { unlocked = true; }).catch(() => {});
-  }
+  // Best-effort autoplay on load, BEFORE any gesture. Works only if the browser
+  // already trusts the site (built-up Media Engagement Index, or Sound=Allow);
+  // otherwise it's a silent no-op and the gesture handler below takes over. It
+  // never sets `started` unless the context is genuinely running.
+  function attemptAutoplay() { play(); }
 
-  function unlock() {
-    if (unlocked) return;
-    unlocked = true;
-    tryPlay();
+  // Start on the FIRST interaction of any kind — a move, key, scroll, tap or
+  // click anywhere — and keep listening until sound is actually coming out, so
+  // a wasted/blocked first attempt can't leave it permanently silent. Once
+  // audibly playing, the listeners remove themselves.
+  const GESTURES = ['pointerdown', 'mousedown', 'keydown', 'touchstart', 'touchend', 'pointermove', 'wheel', 'scroll', 'click'];
+  function onGesture() {
+    if (!enabled) return;
+    if (audiblyPlaying()) { started = true; teardownGestures(); return; }
+    play();
+    // Re-check shortly after: ctx.resume()/play() resolve async, so confirm and
+    // detach only once it's truly running.
+    setTimeout(() => { if (audiblyPlaying()) { started = true; teardownGestures(); } }, 300);
   }
-  // "Any interaction" unlocks it -- not a deliberate click on a control.
-  // A mouse move, key, scroll or tap anywhere is enough, so the user never
-  // has to hunt for a button; the first thing they do on the page starts it.
-  ['pointerdown', 'mousedown', 'keydown', 'touchstart', 'mousemove', 'wheel', 'scroll', 'click'].forEach(ev =>
-    window.addEventListener(ev, unlock, { passive: true, capture: true }));
+  function teardownGestures() {
+    GESTURES.forEach(ev => window.removeEventListener(ev, onGesture, { capture: true }));
+  }
+  GESTURES.forEach(ev => window.addEventListener(ev, onGesture, { passive: true, capture: true }));
 
   function setEnabled(on) {
     enabled = !!on;
     store.set(KEY, enabled ? 'on' : 'off');
-    if (enabled) tryPlay();
-    else if (audio) audio.pause();
+    if (enabled) play();                                  // toggled on = a gesture, so this starts sound
+    else if (audio) { audio.pause(); started = false; }   // off: stop and stay off (persisted) until turned back on
     document.dispatchEvent(new CustomEvent('rp:music', { detail: { enabled, volume: vol } }));
   }
 
@@ -124,9 +136,8 @@ window.RPMusic = (function () {
   function setSource(u) {
     if (!u || u === url) return;
     url = u;
-    audio = null; ctx = null; gainNode = null; graphTried = false;   // rebuild against the new source
-    tryPlay();          // plays now if a gesture already happened
-    attemptAutoplay();  // else try a gesture-free start (works if the browser trusts the site)
+    audio = null; ctx = null; gainNode = null; graphTried = false; started = false;   // rebuild against the new source
+    attemptAutoplay();  // gesture-free try now; the gesture listeners still cover the first interaction
   }
 
   return {
