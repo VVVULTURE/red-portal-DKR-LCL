@@ -129,6 +129,7 @@
     img.setAttribute('aria-hidden', 'true');
     img.src = url;
     slot.appendChild(img);
+    fitPreviewText();   // the icon now shares the title row — re-fit the text
   }
   // A confirmed tab icon shows in two places, from the same tab-<slug>.png:
   // big beside the section title (left preview), and small in place of the
@@ -175,6 +176,33 @@
 
   /* ── home preview (left of the wheel) ────────────────────────── */
 
+  // Shrink the big preview title until it fits inside the preview column, so it
+  // is never clipped behind the wheel's edge on narrow screens. Only ever
+  // shrinks from the CSS size (it resets to that first), never grows past it.
+  function fitPreviewText() {
+    const word = homePreview.querySelector('.pv-word');
+    if (!word) return;                       // logo-image tabs have no text to fit
+    word.style.fontSize = '';                // restore the CSS clamp (the intended max)
+    const cs = getComputedStyle(homePreview);
+    let avail = homePreview.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const logo = homePreview.querySelector('.pv-logo');
+    const icon = homePreview.querySelector('.pv-tabicon img');
+    if (logo && icon) {                      // the tab icon shares the row — leave room for it
+      const g = getComputedStyle(logo);
+      avail -= icon.getBoundingClientRect().width + (parseFloat(g.columnGap || g.gap) || 0);
+    }
+    avail -= 4;                              // hairline safety margin off the line
+    if (avail <= 0) return;
+    for (let i = 0; i < 6; i++) {            // ratio-scale; converges in 1-2 passes
+      const w = word.getBoundingClientRect().width;
+      if (w <= avail) break;
+      const cur = parseFloat(getComputedStyle(word).fontSize);
+      const next = Math.max(16, cur * (avail / w));
+      word.style.fontSize = next + 'px';
+      if (next <= 16) break;
+    }
+  }
+
   function renderHomePreview(it) {
     if (!it) return;
     homePreview.classList.remove('is-in');
@@ -199,7 +227,7 @@
     updateHomeCount(it.key);
     if (it.icon && tabIconState.get(it.icon) === true) setPreviewTabIcon(it.key, it.icon);
     if (LIST[it.key]) fillFan(node, it.key);
-    requestAnimationFrame(() => homePreview.classList.add('is-in'));
+    requestAnimationFrame(() => { homePreview.classList.add('is-in'); fitPreviewText(); });
   }
 
   function updateHomeCount(key) {
@@ -647,6 +675,7 @@
   window.addEventListener('resize', () => {
     homeWheel.layout();
     if (listWheel) listWheel.layout();
+    fitPreviewText();
   });
 
   stage.classList.add('is-active');
@@ -655,8 +684,11 @@
   updateChrome(view);
   homeWheel.layout();
 
+  // Custom fonts change text metrics — re-fit the big title once they load.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitPreviewText()).catch(() => {});
+
   // Entrance: after the intro overlay, or straight away if it already went.
-  const reveal = () => { document.body.classList.add('ui-ready'); homeWheel.layout(); };
+  const reveal = () => { document.body.classList.add('ui-ready'); homeWheel.layout(); fitPreviewText(); };
   if (window.__introDone) reveal();
   else {
     const prev = window.__onIntroDone;
