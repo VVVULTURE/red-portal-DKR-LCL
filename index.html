@@ -272,8 +272,8 @@ header::before {
   inset: 0;
   z-index: 0;
   background: var(--accent);
-  -webkit-mask: url("assets/logo/logo-mask.png?v=20260914k") center / contain no-repeat;
-          mask: url("assets/logo/logo-mask.png?v=20260914k") center / contain no-repeat;
+  -webkit-mask: url("assets/logo/logo-mask.png?v=20260914l") center / contain no-repeat;
+          mask: url("assets/logo/logo-mask.png?v=20260914l") center / contain no-repeat;
 }
 
 /* ── Nav ── */
@@ -1443,7 +1443,7 @@ footer {
   </style>
   <!-- The console-style presentation layer (wheel, scene, transitions).
        Everything above stays as it was; assets/ui/ only adds to it. -->
-  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260914k" />
+  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260914l" />
 </head>
 <body>
 
@@ -1456,7 +1456,7 @@ footer {
 <div id="intro-overlay" aria-hidden="true">
   <span id="intro-logo" class="rp-logo" role="img" aria-label="Red Portal">
     <span class="rp-logo-fill"></span>
-    <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914k" alt="" />
+    <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914l" alt="" />
   </span>
 </div>
 <script>
@@ -1519,7 +1519,7 @@ footer {
   <a class="logo" href="#games" data-section="games" aria-label="Red Portal — go to Games">
     <span class="rp-logo" role="img" aria-label="Red Portal">
       <span class="rp-logo-fill"></span>
-      <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914k" alt="" />
+      <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260914l" alt="" />
     </span>
   </a>
 
@@ -2846,6 +2846,16 @@ footer {
     fetch(abs.href)
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
       .then(htmlText => {
+        // Root-relative asset paths (Vite's default "/assets/...") ignore
+        // <base> and resolve against the ORIGIN, so a game hosted in a
+        // subfolder (Games/<folder>/) fetches them from the site root and
+        // 404s. Rewrite static root-relative refs to be relative to the
+        // game's own folder (resolved via <base> below). The runtime patch
+        // further down does the same for JS-loaded assets (fetch/XHR).
+        // Protocol-relative "//host" and bare "/" are left untouched.
+        htmlText = htmlText
+          .replace(/\b(src|href|poster)=(["'])\/(?![\/"'])/gi, '$1=$2')
+          .replace(/url\((["']?)\/(?![\/"'])/gi, 'url($1');
         const baseTag = '<base href="' + baseDir + '">';
         const urlPatchScript =
           '<script>(function(){' +
@@ -2860,6 +2870,10 @@ footer {
           // page can read it instead of location.search.
           'window.__REAL_SEARCH__=' + JSON.stringify(abs.search) + ';' +
           'var OrigURL=window.URL;' +
+          // Root-relative "/x" (Vite absolute assets) -> the game's own folder,
+          // so JS-loaded assets don't hit the site origin. Leaves "//host",
+          // absolute URLs, and data:/blob: untouched.
+          'function toGameUrl(u){if(typeof u!=="string")return u;if(u.charAt(0)==="/"&&u.charAt(1)!=="/"){try{return new OrigURL(u.slice(1),REAL_BASE).href;}catch(e){return u;}}return u;}' +
           'function PatchedURL(url,base){' +
             'if(base===undefined)return new OrigURL(url);' +
             'if(base===location.href||base===document.URL)base=REAL_BASE;' +
@@ -2891,20 +2905,24 @@ footer {
           '}' +
           'var OrigFetch=window.fetch;' +
           'window.fetch=function(input,init){' +
-            'if(typeof input==="string")input=repairMangledBlobUrl(input);' +
+            'if(typeof input==="string")input=repairMangledBlobUrl(toGameUrl(input));' +
             'else if(input&&typeof input.url==="string"){' +
-              'var fixed=repairMangledBlobUrl(input.url);' +
+              'var fixed=repairMangledBlobUrl(toGameUrl(input.url));' +
               'if(fixed!==input.url)input=new Request(fixed,input);' +
             '}' +
             'return OrigFetch.call(this,input,init);' +
           '};' +
           'var OrigRequest=window.Request;' +
           'function PatchedRequest(input,init){' +
-            'if(typeof input==="string")input=repairMangledBlobUrl(input);' +
+            'if(typeof input==="string")input=repairMangledBlobUrl(toGameUrl(input));' +
             'return new OrigRequest(input,init);' +
           '}' +
           'PatchedRequest.prototype=OrigRequest.prototype;' +
           'window.Request=PatchedRequest;' +
+          // XHR too: three.js GLTFLoader, older loaders, and plain
+          // XMLHttpRequest asset fetches all go through here.
+          'var OrigXhrOpen=XMLHttpRequest.prototype.open;' +
+          'XMLHttpRequest.prototype.open=function(m,u){try{if(typeof u==="string")u=repairMangledBlobUrl(toGameUrl(u));}catch(e){}return OrigXhrOpen.apply(this,[m,u].concat([].slice.call(arguments,2)));};' +
           '})();<\/script>';
 
         let out;
@@ -3551,12 +3569,12 @@ footer {
      controller last. They are plain scripts so a blob-wrapped copy of this
      page (the launcher case, which injects <base>) resolves them the same
      way it resolves /api/*. -->
-<script src="assets/ui/wheel.js?v=20260914k"></script>
-<script src="assets/ui/scene.js?v=20260914k"></script>
-<script src="assets/ui/sfx.js?v=20260914k"></script>
-<script src="assets/ui/music.js?v=20260914k"></script>
-<script src="assets/ui/art.js?v=20260914k"></script>
-<script src="assets/ui/settings.js?v=20260914k"></script>
-<script src="assets/ui/app.js?v=20260914k"></script>
+<script src="assets/ui/wheel.js?v=20260914l"></script>
+<script src="assets/ui/scene.js?v=20260914l"></script>
+<script src="assets/ui/sfx.js?v=20260914l"></script>
+<script src="assets/ui/music.js?v=20260914l"></script>
+<script src="assets/ui/art.js?v=20260914l"></script>
+<script src="assets/ui/settings.js?v=20260914l"></script>
+<script src="assets/ui/app.js?v=20260914l"></script>
 </body>
 </html>
