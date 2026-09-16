@@ -29,3 +29,7 @@ __pycache__/
 # Secrets — never commit
 .env
 .env.*
+
+# session helper scripts (not part of the app)
+_movie_caps.mjs
+_upload_vtt.mjs

@@ -750,6 +750,38 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5p — games' root-relative assets; preview auto-fit; caption saga
+
+- **Root-relative game assets (universal fix).** Games built with Vite's default
+  base (`/assets/...`) ignored the injected `<base>` and resolved against the
+  ORIGIN, so a game in `Games/Testing/Apps/<folder>/` fetched them from the site
+  root (`redportal.dpdns.org/assets/...`) and 404'd. Fixed in the blob launcher
+  (`openGame` in index.html): (1) rewrite static root-relative refs
+  (`src/href/poster` + `url(/...)`) in the game HTML to folder-relative (via
+  `<base>`) — protocol-relative `//`, absolute URLs and bare `/` untouched;
+  (2) added `toGameUrl()` to the injected runtime patch, applied in `fetch`,
+  `Request` and `XMLHttpRequest.open`, so JS-loaded assets (three.js
+  GLTFLoader's `.gltf/.bin`, etc.) resolve to the game folder too. Verified
+  launching `Testing/Car Soccer`: css/js AND gltf/bin all go to
+  `Testing/Car Soccer/assets/...` → R2. Applies to every game now and future.
+- **Preview title auto-fit.** `.pv-word` (big title left of the wheel) is in a
+  grid column with `overflow:hidden`; when wider than the column it was clipped
+  at that edge and vanished on small screens. `fitPreviewText()` measures it vs
+  the column width (minus the tab icon) and scales the font DOWN only (resets to
+  the CSS clamp first, never grows past it). Runs on tab change, icon attach,
+  resize, font load, reveal.
+- **Movie captions — hard lessons.** `small.en` HANGS on long files (Godot
+  course ran ~5.5 CPU-hours, produced nothing) → switched to `base.en` + a
+  spawnSync 45-min timeout guard. The `@aws-sdk` GetObject stream ABORTS on big
+  downloads (`write ECONNABORTED` on 629 MB / 1.6 GB) → download large movies
+  with `curl --retry --retry-all-errors -C -` from the public R2 URL instead.
+  Whisper hallucinates on silent/music audio ("Oh, good." ×3) — the tutorials
+  are silent screen-recordings, so they get no captions. The caption tool
+  `C:\claude-code\Red Portal UI\red-portal\_movie_caps.mjs` (git-ignored, not
+  committed) skips movies already having a `Movies/<name>.vtt` on R2, so it
+  resumes cheaply after the (repeated overnight) session interruptions. 2 of 4
+  done (Recap, Epstein); Godot + Angry Birds re-running.
+
 #### Session 5o — music ducking, auto-captions, Dreamcore theme
 
 - **Music ducks for video:** `RPMusic.duck(on)` temporarily pauses the theme
