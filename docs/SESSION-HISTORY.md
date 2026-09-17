@@ -750,6 +750,24 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5q — video stops on tab exit; caption tool made robust
+
+- **Video stops when leaving its tab.** `showSection()` now pauses every
+  `.tutorial-video` not inside the section being shown, so a movie/tutorial
+  doesn't keep playing after you navigate away (its pause handler un-ducks the
+  music). Verified.
+- **Caption tool, final form** (`_movie_caps.mjs`, git-ignored). The recurring
+  failure was never really a hang after the chunked rewrite — it was the Claude
+  **session dying overnight** before the long transcription finished (3 nights
+  running). Fixes: (1) CHUNKED — split audio into 5-min pieces, per-chunk 4-min
+  timeout, stitch with offsets → hang-proof, bounded; (2) SHORTEST-DURATION
+  FIRST via `ffprobe` on the remote URL (a low-bitrate screen recording is small
+  but long — sort by duration, not size), so a short film uploads before the
+  long courses; (3) run it DETACHED via PowerShell `Start-Process` (not a Claude
+  background task) so it survives the session ending — only a machine sleep can
+  stop it now. Resumes at movie granularity (skips movies already on R2). Still
+  pending: Angry Birds (97m) then Godot course (176m); 2 short ones already live.
+
 #### Session 5p — games' root-relative assets; preview auto-fit; caption saga
 
 - **Root-relative game assets (universal fix).** Games built with Vite's default
