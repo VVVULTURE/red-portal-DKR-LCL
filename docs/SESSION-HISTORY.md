@@ -750,6 +750,31 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5r — auto-discovered themes from R2 folders
+
+Drop a folder into `assets/themes/<Folder>/`, sync, and Red Portal creates the
+theme automatically — no code edit.
+- **Server `/api/themes`** reads the manifest, groups `assets/themes/<Folder>/`
+  files, and returns a theme only if it has >=1 layer named `<Folder>-<n>.<img>`
+  (n=1..10, matched case-insensitively, back-first = highest number). Also
+  reports a `preview`/`settingspreview` image and an `.mp3` if present.
+- **Client `discoverThemes()`** (app.js) merges these into `RP.THEMES`, deduping
+  by **FOLDER** (hardcoded ids differ from folder names — e.g. id `rain` /
+  folder `Rainy` — so dedup-by-id would duplicate them). Generates a back->front
+  depth ramp; samples the accent from the preview (canvas `dominantColor`);
+  re-applies a persisted auto-theme once discovered. The OLD themes keep their
+  hardcoded config + previews (their layer files are named `rain-3` etc., NOT
+  `Rainy-3`, so they're never auto-matched anyway).
+- **Up to 10 layers:** `scene.js` already renders any count; verified on prod —
+  Dreamcore (now auto-discovered, no longer hardcoded) renders all **10 layers**
+  from R2. Also picked up the owner's new **NY City** theme. 14 themes, 0 dupes.
+- **Per-theme music:** on `rp:theme`, `RPMusic.setSource(theme.music || default)`
+  — a theme with an `.mp3` in its folder switches the background track; others
+  revert to the default (`art-manifest.json` "music"). Respects on/off/volume.
+- Previews: settings uses `theme.bg` (the preview image) or composites layers
+  when there's none. Note the matcher: preview must be `preview.*` or
+  `settingspreview.*`; Cracked's is `Cracked-preview.png` so it stays hardcoded.
+
 #### Session 5q — video stops on tab exit; caption tool made robust
 
 - **Video stops when leaving its tab.** `showSection()` now pauses every
