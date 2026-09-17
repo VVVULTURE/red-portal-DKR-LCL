@@ -1632,6 +1632,47 @@ async function handleEmulationList(req, res) {
        took, and (on failure) the exact error message
    This makes the "why is nothing showing up" question answerable
    without needing to dig through Render's server logs.                */
+/* ── GET /api/themes — auto-discover themes from assets/themes/<Folder>/ ──
+   A folder becomes a theme if it holds at least one layer named
+   "<Folder>-<n>.<img>" (n = 1..10). A "preview"/"settingspreview" image is
+   its settings thumbnail; an .mp3 is its background music. Built from the
+   manifest, so a new theme appears after the next sync_to_r2 run. The client
+   merges these with the hardcoded THEMES (hardcoded ones win on name). */
+async function handleThemes(req, res) {
+  const IMG = '(?:png|jpe?g|gif|webp|avif)';
+  let manifest;
+  try { manifest = await getManifest(); }
+  catch (e) {
+    res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+    return res.end('[]');   // fail soft — no discovered themes, hardcoded ones still work
+  }
+  const folders = {};
+  for (const [key, url] of Object.entries(manifest)) {
+    const m = key.match(/^assets\/themes\/([^/]+)\/([^/]+)$/);   // direct children only
+    if (!m) continue;
+    (folders[m[1]] = folders[m[1]] || []).push({ name: m[2], url });
+  }
+  const out = [];
+  for (const [folder, files] of Object.entries(folders)) {
+    const esc = folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const layerRe = new RegExp('^' + esc + '-(\\d+)\\.' + IMG + '$', 'i');
+    const prevRe  = new RegExp('^(?:settingspreview|preview)\\.' + IMG + '$', 'i');
+    const layers = [];
+    let preview = null, music = null;
+    for (const f of files) {
+      const lm = f.name.match(layerRe);
+      if (lm) { const n = parseInt(lm[1], 10); if (n >= 1 && n <= 10) layers.push({ n, name: f.name }); continue; }
+      if (!preview && prevRe.test(f.name)) preview = f.url;
+      if (!music && /\.mp3$/i.test(f.name)) music = f.url;
+    }
+    if (!layers.length) continue;                 // require at least one layer
+    layers.sort((a, b) => b.n - a.n);             // back-first (highest number = back)
+    out.push({ id: folder, name: folder, folder, layers: layers.map(l => l.name), preview, music });
+  }
+  res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
+  res.end(JSON.stringify(out));
+}
+
 async function handleR2Status(req, res) {
   const configured = {
     R2_ACCOUNT_ID:             !!R2_ACCOUNT_ID,
@@ -1740,6 +1781,9 @@ const server = http.createServer((req, res) => {
      as a fallback) actually succeed? ── */
   if (pathname === '/api/r2-status') {
     return handleR2Status(req, res);
+  }
+  if (pathname === '/api/themes') {
+    return handleThemes(req, res);
   }
 
   /* ── /api/games, /api/testing, /api/apps — auto-populated grid data ──

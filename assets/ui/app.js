@@ -623,9 +623,17 @@
     listWheel.spinTo(i);
   });
 
-  /* ── theme layers ────────────────────────────────────────────── */
+  /* ── theme layers + per-theme music ──────────────────────────── */
 
-  document.addEventListener('rp:theme', e => applyThemeLayers(e.detail && e.detail.theme));
+  let defaultThemeMusic = null;   // the site's default track (art-manifest "music")
+  document.addEventListener('rp:theme', e => {
+    const theme = e.detail && e.detail.theme;
+    applyThemeLayers(theme);
+    // Switch the background music to the theme's own .mp3 if it has one, else
+    // back to the default track. Respects the user's on/off + volume (RPMusic
+    // keeps playing/paused as set; it only swaps the source).
+    if (window.RPMusic) window.RPMusic.setSource((theme && theme.music) || defaultThemeMusic || '');
+  });
 
   async function applyThemeLayers(theme) {
     if (!theme) return;
@@ -644,6 +652,69 @@
     if (!ok && RP.setFlatBackground) RP.setFlatBackground(theme);
   }
   if (RP.currentTheme) applyThemeLayers(RP.currentTheme());
+
+  /* Auto-discover themes synced into assets/themes/<Folder>/ (see /api/themes).
+     A folder with >=1 layer named "<Folder>-<n>" becomes a theme; a
+     preview/settingspreview image is its settings thumbnail; an .mp3 is its
+     background music. Hardcoded THEMES win on name, so existing previews are
+     untouched. Depth ramps back->front; accent is sampled from the preview. */
+  function discoverThemes() {
+    fetch('/api/themes').then(r => (r.ok ? r.json() : [])).then(list => {
+      if (!Array.isArray(list) || !list.length) return;
+      // Dedup by FOLDER (hardcoded ids differ from folder names, e.g. id "rain"
+      // / folder "Rainy"), so an existing theme is never duplicated.
+      const known = new Set((RP.THEMES || []).map(t => String(t.folder || t.id).toLowerCase()));
+      let added = 0;
+      for (const d of list) {
+        if (!d || !d.folder || !d.layers || !d.layers.length) continue;
+        if (known.has(String(d.folder).toLowerCase())) continue;     // hardcoded/existing wins
+        const N = d.layers.length;
+        const depth = d.layers.map((_, i) => (N === 1 ? 1 : +(1 - (i / (N - 1)) * 0.85).toFixed(3)));
+        const theme = {
+          id: d.folder, name: d.folder, folder: d.folder,
+          color: '#FFFFFF', bg: d.preview || null,
+          layers: d.layers, depth, music: d.music || null,
+        };
+        RP.THEMES.push(theme);
+        known.add(String(d.folder).toLowerCase());
+        added++;
+        if (d.preview) dominantColor(d.preview).then(c => { if (c) theme.color = c; });
+      }
+      // Restore a persisted auto-theme: applyTheme() ran at load before these
+      // existed and fell back to default; re-apply now that it's known.
+      if (added) {
+        let stored = null; try { stored = localStorage.getItem('rp_theme'); } catch (_) {}
+        if (stored && known.has(String(stored).toLowerCase()) && (RP.currentTheme() || {}).id !== stored) {
+          RP.applyTheme(stored);
+        }
+      }
+    }).catch(() => {});
+  }
+
+  /** Vivid dominant colour of an image (for an auto-theme's accent). */
+  function dominantColor(url) {
+    return new Promise(res => {
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const n = 32, cv = document.createElement('canvas'); cv.width = cv.height = n;
+          const g = cv.getContext('2d'); g.drawImage(img, 0, 0, n, n);
+          const d = g.getImageData(0, 0, n, n).data;
+          let best = null, score = -1;
+          for (let i = 0; i < d.length; i += 4) {
+            const r = d[i], gg = d[i + 1], b = d[i + 2], a = d[i + 3];
+            if (a < 128) continue;
+            const mx = Math.max(r, gg, b), sat = mx - Math.min(r, gg, b);
+            const s = sat * 1.5 + (mx > 60 && mx < 235 ? mx : 0);
+            if (s > score) { score = s; best = [r, gg, b]; }
+          }
+          res(best ? '#' + best.map(x => x.toString(16).padStart(2, '0')).join('') : null);
+        } catch (_) { res(null); }
+      };
+      img.onerror = () => res(null);
+      img.src = url;
+    });
+  }
 
   /* ── side panel: sound toggle ────────────────────────────────── */
 
@@ -669,7 +740,13 @@
 
   Art.ready.then(m => {
     if (m && m.sfx) Sfx.setSources(m.sfx);
-    if (m && m.music && window.RPMusic) window.RPMusic.setSource(m.music);
+    defaultThemeMusic = (m && m.music) || null;
+    // Initial track: the current theme's own .mp3 if it has one, else default.
+    if (window.RPMusic) {
+      const t = RP.currentTheme && RP.currentTheme();
+      window.RPMusic.setSource((t && t.music) || defaultThemeMusic || '');
+    }
+    discoverThemes();
   });
 
   window.addEventListener('resize', () => {
