@@ -2223,7 +2223,7 @@ footer {
       id:    'Portal',
       name:  'Portal',
       color: '#FFA200',
-      bg:    'https://assets.redportal.dpdns.org/assets/themes/Portal-Game.png',
+      bg:    'https://assets.redportal.dpdns.org/assets/themes/Portal/preview.png',
       folder: 'Portal',
       layers: ['portal-3.png', 'portal-2.png', 'portal-1.png'],
       depth:  [1, 0.5, 0.25],
@@ -2435,35 +2435,6 @@ footer {
         toggleSPSection(section);
       }
     });
-  });
-
-  /* ─── Offline download button ─────────────────────────────────── */
-  document.getElementById('btnOfflineDownload').addEventListener('click', async function () {
-    const btn = this;
-    const originalHTML = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = btn.innerHTML.replace(/Red Portal \(Offline\)/, 'Downloading…');
-
-    try {
-      const res = await fetch(
-        'https://raw.githubusercontent.com/VVVULTURE/red-portal-DKR-LCL/main/Red%20Portal%20(Offline).html'
-      );
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'text/html' }));
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = 'Red Portal (Offline).html';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-    } catch (err) {
-      console.error('Offline download failed:', err);
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = originalHTML;
-    }
   });
 
   // Boot: build side panel themes and restore saved theme
