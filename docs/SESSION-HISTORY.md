@@ -750,6 +750,10 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5s — fix: auto-themes missing from the Settings list
+
+The Settings theme grid is built once at load (settings.js `build()` -> `fillAppearance`), which ran BEFORE the async `discoverThemes()` fetch resolved, so synced themes were in `RP.THEMES` but never in the visible list (and thus "had no previews"). Fix: `discoverThemes()` dispatches `rp:themes` (after adding, and again once the sampled colours land); settings.js rebuilds the grid on it. Also confirmed a persisted auto-theme restores instead of staying on default. Verified on prod: 17 themes / 17 cards, all new themes + previews present, default bg renders. NOTE: the owner also edits index.html on main directly (e.g. "Update Portal theme background"), so rebase before push. "default background broken" was not reproducible here (likely a stale browser cache before the version bump). ver 20260918a.
+
 #### Session 5r — auto-discovered themes from R2 folders
 
 Drop a folder into `assets/themes/<Folder>/`, sync, and Red Portal creates the
