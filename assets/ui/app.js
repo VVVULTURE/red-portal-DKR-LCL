@@ -665,6 +665,7 @@
       // / folder "Rainy"), so an existing theme is never duplicated.
       const known = new Set((RP.THEMES || []).map(t => String(t.folder || t.id).toLowerCase()));
       let added = 0;
+      const colorJobs = [];
       for (const d of list) {
         if (!d || !d.folder || !d.layers || !d.layers.length) continue;
         if (known.has(String(d.folder).toLowerCase())) continue;     // hardcoded/existing wins
@@ -678,16 +679,21 @@
         RP.THEMES.push(theme);
         known.add(String(d.folder).toLowerCase());
         added++;
-        if (d.preview) dominantColor(d.preview).then(c => { if (c) theme.color = c; });
+        if (d.preview) colorJobs.push(dominantColor(d.preview).then(c => { if (c) theme.color = c; }));
       }
+      if (!added) return;
+      // Tell the settings panel to (re)build its theme grid — it was built
+      // before these existed, so without this the new themes never show up.
+      document.dispatchEvent(new CustomEvent('rp:themes'));
       // Restore a persisted auto-theme: applyTheme() ran at load before these
       // existed and fell back to default; re-apply now that it's known.
-      if (added) {
-        let stored = null; try { stored = localStorage.getItem('rp_theme'); } catch (_) {}
-        if (stored && known.has(String(stored).toLowerCase()) && (RP.currentTheme() || {}).id !== stored) {
-          RP.applyTheme(stored);
-        }
+      let stored = null; try { stored = localStorage.getItem('rp_theme'); } catch (_) {}
+      if (stored && known.has(String(stored).toLowerCase()) && (RP.currentTheme() || {}).id !== stored) {
+        RP.applyTheme(stored);
       }
+      // Refresh again once the sampled accent colours land, so the swatches
+      // and dots use the real colour instead of the temporary white.
+      if (colorJobs.length) Promise.all(colorJobs).then(() => document.dispatchEvent(new CustomEvent('rp:themes')));
     }).catch(() => {});
   }
 

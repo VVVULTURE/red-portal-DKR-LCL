@@ -209,6 +209,12 @@
       const t = root.querySelector('[data-pane="sound"] .set-toggle');
       if (t && e.detail) { t.classList.toggle('on', e.detail.enabled); t.setAttribute('aria-checked', String(e.detail.enabled)); }
     });
+    // Rebuild the theme grid when themes change (auto-discovered themes are
+    // added asynchronously after this panel is first built).
+    document.addEventListener('rp:themes', () => {
+      const pane = root.querySelector('[data-pane="appearance"]');
+      if (pane) fillAppearance(pane);
+    });
   }
 
   if (Art && Art.ready) Art.ready.then(build); else build();
