@@ -27,6 +27,10 @@ FROM node:24-alpine
 #   • many packages reduce logging / enable caches
 ENV NODE_ENV=production
 
+# ffmpeg: used by transcribe.js to extract movie audio for Groq auto-captioning.
+# ~30 MB on Alpine; harmless if the captioning feature is left disabled.
+RUN apk add --no-cache ffmpeg
+
 # Run as a non-root user for security
 RUN addgroup -S redportal && adduser -S redportal -G redportal
 

@@ -55,6 +55,10 @@ const { server: wispServer, logging: wispLogging } = require('@mercuryworkshop/w
 // aren't set, every call below is a safe no-op and the site is unaffected.
 const bot = require('./bot');
 
+// Automatic movie captioning via Groq's Whisper API. Gated on GROQ_API_KEY +
+// R2 write creds + ffmpeg; a no-op otherwise. See transcribe.js.
+const captions = require('./transcribe');
+
 wispLogging.set_level(wispLogging.NONE);
 Object.assign(wispServer.options, {
   allow_udp_streams: false,
@@ -1380,6 +1384,15 @@ async function handleMovies(req, res, fresh) {
       }));
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
     res.end(JSON.stringify(movies));
+
+    // Auto-caption: queue any movie that has no Movies/<name>.vtt yet. No-op
+    // unless GROQ_API_KEY (+ R2 write creds + ffmpeg) are set. Runs after the
+    // response so it never delays the movies list.
+    if (captions.ENABLED) {
+      cachedList('movie-vtts', 60000, () => listR2Files('Movies/', /\.vtt$/i))
+        .then(vtts => captions.queueMissing(files, vtts))
+        .catch(() => {});
+    }
   } catch (e) {
     console.error('  ✗  /api/movies R2 listing error:', e.message);
     res.writeHead(200, { 'content-type': 'application/json', ...CORS_HEADERS });
