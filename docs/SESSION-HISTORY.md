@@ -750,6 +750,53 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5u — server-side movie captioning via Groq (the local pipeline retired)
+
+The owner's ask: **every movie in the Movies tab should be auto-transcribed by
+the Red Portal server itself when it's added** — no more overnight local runs.
+The Koyeb free instance can't run Whisper, so it hands the audio to **Groq's
+free Whisper API** and stores the result as `Movies/<name>.vtt` on R2.
+
+- **`transcribe.js`** (new module, repo root). Per uncaptioned movie, queued one
+  at a time (`queue = queue.then(...)`, `inProgress` Set dedupe) to spare the
+  0.1 vCPU: ffmpeg reads the movie **straight from its R2 URL** (`-reconnect 1
+  -reconnect_streamed 1 -reconnect_delay_max 30`, no local download), extracts
+  16 kHz mono, splits into `CHUNK_SEC`-second mp3 segments (default 600 =
+  10 min); each chunk → Groq `POST /openai/v1/audio/transcriptions` with
+  `model=whisper-large-v3-turbo`, `response_format=vtt` (Groq returns WebVTT
+  directly), retrying 429/5xx with exponential backoff; `collectCues` offsets
+  each chunk's timestamps by `i*CHUNK_SEC` and stitches one `.vtt`; uploads
+  `Movies/<stem>.vtt` via `PutObjectCommand`; temp dir cleaned in `finally`.
+- **Fully gated.** `ENABLED = !!(GROQ_API_KEY && R2_ACCOUNT_ID && R2 write key &&
+  R2 write secret)`. Write creds prefer `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`
+  and fall back to the `R2_LIST_*` pair if that token already has write scope.
+  With the key absent it's `ENABLED:false` and a **complete no-op** — the site is
+  untouched (that's why it could ship dark before the owner had a key).
+- **`server.js`** — after `handleMovies` sends the list, if `captions.ENABLED` it
+  lists `Movies/*.vtt` (60 s cache) and calls `captions.queueMissing(files,
+  vtts)`. So **loading the Movies tab is the trigger**: any movie without a
+  caption gets queued. Added `const captions = require('./transcribe');`.
+- **`Dockerfile`** — `RUN apk add --no-cache ffmpeg` (~30 MB; harmless when the
+  feature is disabled).
+- **Diagnostic** — `/api/r2-status` now returns a `captions` block
+  (`enabled`, `ffmpeg`, `writeKey`, `writeSecret`, `inProgress`) and `envSeen`
+  now includes `GROQ_`/`CAPTION_` names (names + lengths only, never secrets), so
+  the feature is verifiable on the live instance without shell access.
+- Commits: **`f029ab0`** (feature), **`4eb3194`** (diagnostic).
+- **Verified end-to-end on prod (2026-09-19).** After the owner set
+  `GROQ_API_KEY` on Koyeb `sound-constancia` (Plaintext) and it redeployed,
+  `/api/r2-status` showed `captions.enabled:true`, `ffmpeg:true`, both R2 write
+  creds present, `GROQ_API_KEY set (len 56)`. Loading `/api/movies` queued the
+  one uncaptioned movie — `inProgress:["The Angry Birds Movie.mp4"]` — confirming
+  the whole chain (env → ffmpeg-from-R2 → Groq → serialized queue). Note the R2
+  write keys `R2_ACCESS_KEY_ID`(32)/`R2_SECRET_ACCESS_KEY`(64) were **already**
+  on the service, so no extra token was needed.
+- **The local caption pipeline (`_movie_caps.mjs`) is retired** in favour of
+  this. Its last run (detached) captioned **Napoleon** (uploaded, 51 cues) but
+  **failed on Angry Birds at the R2 upload** — see ledger #35. Angry Birds is now
+  Groq's job. `_movie_caps.mjs` stays in the repo (git-ignored) as a fallback
+  local captioner but is no longer the path.
+
 #### Session 5t — music overlap fix; theme layers accept full URLs
 
 - **Music overlap:** `music.js` `setSource()` set `audio=null` WITHOUT pausing
@@ -1061,6 +1108,7 @@ Read this before debugging. Several of these present identically.
 | 33 | **Repo/infra files pile up in the R2 bucket** | The sync walks the whole folder and uploads everything; the site never fetches most of it from R2 (index.html/server.js from Render, redproxy from the repo, a stray Steam tool at root `_framework/`) | Root-anchored `EXCLUDE_PATHS`/`EXCLUDE_PATH_PREFIXES` in `sync_to_r2.py` (NOT by basename -- Terraria has a real `_framework/`), plus a one-time `r2-cleanup.mjs` deleting the 138 already-orphaned objects |
 | 34 | **A wheel with 1-2 items spins forever and never settles** (the Apps tab) | Movement used `opts.loop` (always true) but the renderer only draws a wrapped copy with 7+ items, so `pos` climbed while the lone item was drawn once and flew off | An effective `looping` getter = the renderer's own wrap threshold, used by every movement/index/clamp path; small lists clamp at their ends |
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
+| 35 | **Local captioner logged "ALL DONE" but Angry Birds had no `.vtt` on R2** | It transcribed 19/20 chunks (chunk 1 timed out, skipped) then the R2 `PutObject` was aborted mid-write (`write ECONNABORTED`, a transient network drop). The catch printed the error to **stderr** while the outer loop's "ALL DONE" went to **stdout** — the two were split into `.out.log`/`.err.log`, so the stdout tail looked like success. The stitched cues lived only in memory and were lost | Confirmed the failure by fetching the `.vtt` (404) and reading `.err.log`. This is why server-side Groq (session 5u, retries the upload, no in-memory-only state across a 40-min run) replaced the local pipeline. When judging a long job, verify the artifact (R2 200), not just the stdout tail |
 
 ---
 
@@ -1141,6 +1189,38 @@ curl -s https://redportal.dpdns.org/api/r2-status        # discovery diagnostics
 curl -s https://redportal.dpdns.org/ | grep -c __RP_GRIDS=   # is the inlining live?
 ```
 
+### Automatic movie captioning (Groq) — session 5u
+
+Movies are captioned server-side by `transcribe.js`. There is nothing to run by
+hand; **loading the Movies tab triggers it** — `/api/movies` queues any movie
+lacking a `Movies/<name>.vtt`, one at a time (ffmpeg reads the movie from its R2
+URL → 10-min mp3 chunks → Groq Whisper `whisper-large-v3-turbo` → stitched `.vtt`
+→ uploaded to R2). New movies caption themselves the first time someone opens the
+tab.
+
+Required env on the Koyeb `sound-constancia` service (Plaintext):
+
+```
+GROQ_API_KEY            # from console.groq.com → API Keys (free tier)
+R2_ACCESS_KEY_ID        # R2 token with Object Read & WRITE (upload of the .vtt)
+R2_SECRET_ACCESS_KEY    #   (falls back to R2_LIST_* only if that token has write)
+```
+
+Verify it's armed and watch progress (no secrets exposed — names/lengths only):
+
+```bash
+curl -s https://redportal.dpdns.org/api/r2-status | grep -A6 '"captions"'
+#   enabled:true, ffmpeg:true, writeKey/writeSecret:present, inProgress:[...]
+curl -s https://redportal.dpdns.org/api/movies                 # loading this queues missing captions
+curl -sI "https://assets.redportal.dpdns.org/Movies/<Name>.vtt" # 200 = captioned, 404 = not yet
+```
+
+Tuning env (optional): `CAPTION_CHUNK_SEC` (default 600), `GROQ_WHISPER_MODEL`
+(default `whisper-large-v3-turbo`). A long movie streams + chunks on the tiny
+instance, so its `.vtt` lands minutes later; Groq free-tier rate limits are
+retried automatically. `_movie_caps.mjs` remains as a git-ignored local fallback
+captioner but is no longer the primary path (ledger #35).
+
 ### The bot
 
 Runs locally from `C:\Stuff\Red Bot\red-portal-bot-for-friend` behind ngrok.
@@ -1176,8 +1256,18 @@ honestly returns 502.
   playing needs the owner's NVIDIA account.
 - **Three games are gone everywhere** — Google Snake, Postal, Get Yolked. Not
   on R2, not in the folder. They need their files restored locally first.
+- **Movie captioning is now server-side (Groq).** Live and armed on Koyeb
+  (session 5u). Angry Birds was queued and is captioning as of 2026-09-19 —
+  confirm its `.vtt` landed on R2 (a 97-min movie takes a few minutes). All other
+  movies are captioned. The local `_movie_caps.mjs` pipeline is retired.
+- **The hardcoded `THEMES` array in `index.html`.** The owner is hand-managing it
+  (Default theme, layer paths). The earlier "empty the THEMES array so no
+  background is hardcoded" request was **NOT shipped** — it would wipe the owner's
+  edits. Confirm with the owner before emptying it; leave a commented example if
+  they do want it emptied.
 - **Credentials shared in conversation** (R2 access key + secret, and the bot's
-  hardcoded fallbacks) should be rotated.
+  hardcoded fallbacks) should be rotated. `GROQ_API_KEY` lives only in Koyeb env
+  (never in the repo).
 - **The bot must be restarted** to pick up `/post-report`; until then
   `/api/report` honestly returns 502.
 - A few double-prefixed subresource requests on the GFN mall page — cosmetic.
