@@ -107,17 +107,26 @@ function collectCues(vtt, off, cues) {
 const inProgress = new Set();
 let queue = Promise.resolve();   // serialize: one movie at a time
 
+// Last-run diagnostics, surfaced (no secrets) via /api/r2-status so a failure on
+// the Koyeb instance is visible without shell/log access. `stage` is updated as
+// transcribeOne progresses, so a thrown error tells us WHERE it died.
+let _last = { file: null, stage: null, startedAt: null, doneAt: null, cues: null, error: null };
+function _stage(file, stage) { _last = { ..._last, file, stage, error: null }; }
+
 /** Transcribe one Movies/<file> and upload Movies/<stem>.vtt. Safe/no-op if disabled. */
 function queueMovie(fileName) {
   if (!ENABLED || !hasFfmpeg() || inProgress.has(fileName)) return;
   inProgress.add(fileName);
-  queue = queue.then(() => transcribeOne(fileName)).catch(e => console.error(`  ✗  caption "${fileName}":`, e.message)).finally(() => inProgress.delete(fileName));
+  queue = queue.then(() => transcribeOne(fileName))
+    .catch(e => { _last = { ..._last, file: fileName, error: e.message, doneAt: new Date().toISOString() }; console.error(`  ✗  caption "${fileName}":`, e.message); })
+    .finally(() => inProgress.delete(fileName));
 }
 
 async function transcribeOne(fileName) {
   const stem = fileName.replace(/\.[^.]+$/, '');
   const url = `https://${R2_PUBLIC_DOMAIN}/Movies/${enc(fileName)}`;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rpcap-'));
+  _last = { file: fileName, stage: 'ffmpeg (extract audio)', startedAt: new Date().toISOString(), doneAt: null, cues: null, error: null };
   console.log(`  🎬  Auto-captioning "${fileName}" via Groq…`);
   try {
     await run('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error',
@@ -128,13 +137,16 @@ async function transcribeOne(fileName) {
     if (!chunks.length) throw new Error('no audio extracted');
     const cues = [];
     for (let i = 0; i < chunks.length; i++) {
+      _stage(fileName, `groq chunk ${i + 1}/${chunks.length}`);
       const vtt = await groqVtt(path.join(tmp, chunks[i]));
       collectCues(vtt, i * CHUNK_SEC, cues);
     }
-    if (!cues.length) { console.log(`  (no speech in "${fileName}", skipping)`); return; }
+    if (!cues.length) { _last = { ..._last, stage: 'no speech', doneAt: new Date().toISOString(), cues: 0 }; console.log(`  (no speech in "${fileName}", skipping)`); return; }
+    _stage(fileName, 'uploading .vtt to R2');
     const out = 'WEBVTT\n\n' + cues.join('\n\n') + '\n';
     await s3().send(new PutObjectCommand({ Bucket: R2_BUCKET, Key: `Movies/${stem}.vtt`,
       Body: Buffer.from(out, 'utf-8'), ContentType: 'text/vtt; charset=utf-8' }));
+    _last = { file: fileName, stage: 'done', startedAt: _last.startedAt, doneAt: new Date().toISOString(), cues: cues.length, error: null };
     console.log(`  ✓  Captioned "${fileName}" (${cues.length} cues) -> Movies/${stem}.vtt`);
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {}
@@ -150,4 +162,4 @@ function queueMissing(movieFiles, vttFiles) {
   }
 }
 
-module.exports = { ENABLED, hasFfmpeg, queueMissing, queueMovie, get inProgress() { return [...inProgress]; } };
+module.exports = { ENABLED, hasFfmpeg, queueMissing, queueMovie, get inProgress() { return [...inProgress]; }, get last() { return _last; } };

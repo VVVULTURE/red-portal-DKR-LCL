@@ -1716,6 +1716,7 @@ async function handleR2Status(req, res) {
     writeKey:    (process.env.R2_ACCESS_KEY_ID     || process.env.R2_LIST_ACCESS_KEY_ID)     ? 'present' : 'MISSING',
     writeSecret: (process.env.R2_SECRET_ACCESS_KEY || process.env.R2_LIST_SECRET_ACCESS_KEY) ? 'present' : 'MISSING',
     inProgress:  captions.inProgress,       // movies being captioned right now
+    last:        captions.last,             // last run: {file, stage, startedAt, doneAt, cues, error}
   };
 
   const manifestStarted = Date.now();
