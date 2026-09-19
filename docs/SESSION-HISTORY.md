@@ -750,6 +750,28 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5t — music overlap fix; theme layers accept full URLs
+
+- **Music overlap:** `music.js` `setSource()` set `audio=null` WITHOUT pausing
+  it, so switching tracks (per-theme .mp3) left the old element playing while a
+  new one started -> both audible, orphaned AudioContexts glitching. Now it
+  pauses + clears the old element and closes the old context first. Behaviour
+  (per owner): background music defaults to the site track and switches to a
+  theme's own .mp3 when its folder has one, then back -- cleanly.
+- **Default background gone:** the owner hand-edited the hardcoded Default theme
+  to use FULL URLs in `layers` (files exist: "Default (test)-3.png" etc.), but
+  `applyThemeLayers` prepended the folder base onto them -> broken doubled URL.
+  Fix: a layer entry may be a bare filename (base-relative) OR an absolute URL
+  (used as-is), in both `applyThemeLayers` (app.js) and the settings composite
+  (settings.js). Verified Default renders.
+- **Note:** the owner is actively editing the hardcoded THEMES array on main
+  (Default URLs, layer paths) -- so the "empty the THEMES array" change from
+  the prior request was NOT shipped (it would wipe their edits); the R2 layer
+  renames for the 6 old themes (to <Folder>-<n>) WERE done and are additive
+  (old files kept), so nothing broke. Confirm with the owner before emptying.
+- Movie captions still: 2 of 4 (short ones) done; long two need one awake
+  ~40-min window (machine sleeps overnight killing even the detached run).
+
 #### Session 5s — fix: auto-themes missing from the Settings list
 
 The Settings theme grid is built once at load (settings.js `build()` -> `fillAppearance`), which ran BEFORE the async `discoverThemes()` fetch resolved, so synced themes were in `RP.THEMES` but never in the visible list (and thus "had no previews"). Fix: `discoverThemes()` dispatches `rp:themes` (after adding, and again once the sampled colours land); settings.js rebuilds the grid on it. Also confirmed a persisted auto-theme restores instead of staying on default. Verified on prod: 17 themes / 17 cards, all new themes + previews present, default bg renders. NOTE: the owner also edits index.html on main directly (e.g. "Update Portal theme background"), so rebase before push. "default background broken" was not reproducible here (likely a stale browser cache before the version bump). ver 20260918a.
