@@ -796,6 +796,15 @@ free Whisper API** and stores the result as `Movies/<name>.vtt` on R2.
   **failed on Angry Birds at the R2 upload** — see ledger #35. Angry Birds is now
   Groq's job. `_movie_caps.mjs` stays in the repo (git-ignored) as a fallback
   local captioner but is no longer the path.
+- **First live run 400'd on every chunk — ledger #36.** Groq has no `vtt`
+  response format (OpenAI does); it needs `verbose_json` and we build the WebVTT
+  ourselves. Caught by adding a `captions.last` diagnostic (stage + error) to
+  `/api/r2-status` (`7589a20`), then fixed (`423bd13`). **Verified end-to-end**:
+  the owner deleted School Spyware's `.vtt` (keeping the movie) as a fast test;
+  loading the Movies tab re-captioned it — **102 cues, R2 200** — which also
+  proved the R2 write token actually writes. Angry Birds (97 m) captions next in
+  the same queue. Read note: captioning fetches the movie over the **public**
+  domain, so the R2 token needs only **write** (for the `.vtt` upload), not read.
 
 #### Session 5t — music overlap fix; theme layers accept full URLs
 
@@ -1109,6 +1118,7 @@ Read this before debugging. Several of these present identically.
 | 34 | **A wheel with 1-2 items spins forever and never settles** (the Apps tab) | Movement used `opts.loop` (always true) but the renderer only draws a wrapped copy with 7+ items, so `pos` climbed while the lone item was drawn once and flew off | An effective `looping` getter = the renderer's own wrap threshold, used by every movement/index/clamp path; small lists clamp at their ends |
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
 | 35 | **Local captioner logged "ALL DONE" but Angry Birds had no `.vtt` on R2** | It transcribed 19/20 chunks (chunk 1 timed out, skipped) then the R2 `PutObject` was aborted mid-write (`write ECONNABORTED`, a transient network drop). The catch printed the error to **stderr** while the outer loop's "ALL DONE" went to **stdout** — the two were split into `.out.log`/`.err.log`, so the stdout tail looked like success. The stitched cues lived only in memory and were lost | Confirmed the failure by fetching the `.vtt` (404) and reading `.err.log`. This is why server-side Groq (session 5u, retries the upload, no in-memory-only state across a 40-min run) replaced the local pipeline. When judging a long job, verify the artifact (R2 200), not just the stdout tail |
+| 36 | **Server-side Groq captioning: every chunk failed, movie dropped out of `inProgress` with no `.vtt`, no visible reason** | `transcribe.js` requested `response_format=vtt` (copied from OpenAI's Whisper API). **Groq's transcription API does not support vtt/srt** — only `json | text | verbose_json` — so every chunk got `HTTP 400 invalid_response_format`. The error was only on the server's `console.error`, invisible on Koyeb; the ~5-min delay before it surfaced was ffmpeg extracting the long movie's audio *first*, then the first Groq call 400ing | Two parts: (1) added a `captions.last` diag (`{file,stage,startedAt,doneAt,cues,error}`) to `/api/r2-status` so the real error/stage is readable without server logs — that's how it was caught (`commit 7589a20`); (2) request `verbose_json` and build the WebVTT ourselves from the segment `start`/`end`/`text` (`commit 423bd13`). Verified: School Spyware captioned (102 cues, R2 200), which also proved the R2 write token works |
 
 ---
 
