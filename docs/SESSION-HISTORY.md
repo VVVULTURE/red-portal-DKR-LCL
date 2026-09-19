@@ -1266,10 +1266,11 @@ honestly returns 502.
   playing needs the owner's NVIDIA account.
 - **Three games are gone everywhere** — Google Snake, Postal, Get Yolked. Not
   on R2, not in the folder. They need their files restored locally first.
-- **Movie captioning is now server-side (Groq).** Live and armed on Koyeb
-  (session 5u). Angry Birds was queued and is captioning as of 2026-09-19 —
-  confirm its `.vtt` landed on R2 (a 97-min movie takes a few minutes). All other
-  movies are captioned. The local `_movie_caps.mjs` pipeline is retired.
+- **Movie captioning is now server-side (Groq) and fully working.** Live on Koyeb
+  (session 5u). As of 2026-09-19 **all 6 movies are captioned** (`.vtt` = HTTP 200
+  each; Angry Birds = 1643 cues, transcribed in ~11 min; queue idle). New movies
+  self-caption on the first Movies-tab load. The local `_movie_caps.mjs` pipeline
+  is retired. No open work here — left as a record.
 - **The hardcoded `THEMES` array in `index.html`.** The owner is hand-managing it
   (Default theme, layer paths). The earlier "empty the THEMES array so no
   background is hardcoded" request was **NOT shipped** — it would wipe the owner's
