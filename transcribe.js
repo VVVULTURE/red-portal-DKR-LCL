@@ -11,7 +11,8 @@
  *      split into CHUNK_SEC-second .mp3 chunks (kept small: Groq caps upload
  *      size, and chunking bounds the work + eases rate limits).
  *   2. each chunk -> Groq POST /openai/v1/audio/transcriptions with
- *      response_format=vtt (Groq returns WebVTT directly).
+ *      response_format=verbose_json (Groq has no vtt/srt format — we build the
+ *      WebVTT ourselves from the returned segment start/end/text).
  *   3. offset each chunk's timestamps and stitch into one .vtt.
  *   4. upload to R2 as Movies/<name>.vtt (write keys), then clean up.
  *
@@ -60,7 +61,6 @@ const enc = key => key.split('/').map(encodeURIComponent).join('/');
 
 function pad(n, w = 2) { return String(n).padStart(w, '0'); }
 function fmtTs(s) { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60; return `${pad(h)}:${pad(m)}:${pad(Math.floor(sec))}.${pad(Math.round((sec - Math.floor(sec)) * 1000), 3)}`; }
-function parseTs(str) { const p = str.trim().split(':'); let s = 0; for (const x of p) s = s * 60 + parseFloat(x); return s; }
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -72,18 +72,23 @@ function run(cmd, args) {
   });
 }
 
-/** POST one audio chunk to Groq, asking for WebVTT back. Retries on rate limit. */
-async function groqVtt(file) {
+/**
+ * POST one audio chunk to Groq and return its segment list. Retries on rate
+ * limit. NOTE: Groq's transcription API supports only json | text |
+ * verbose_json — NOT vtt/srt (that's OpenAI). So we ask for verbose_json and
+ * build the WebVTT ourselves from the segment start/end/text (see collectCues).
+ */
+async function groqSegments(file) {
   const bytes = fs.readFileSync(file);
   for (let attempt = 0; attempt < 4; attempt++) {
     const form = new FormData();
     form.append('file', new Blob([bytes], { type: 'audio/mpeg' }), path.basename(file));
     form.append('model', GROQ_MODEL);
-    form.append('response_format', 'vtt');
+    form.append('response_format', 'verbose_json');
     form.append('language', 'en');
     form.append('temperature', '0');
     const res = await fetch(GROQ_URL, { method: 'POST', headers: { authorization: `Bearer ${GROQ_KEY}` }, body: form });
-    if (res.ok) return res.text();
+    if (res.ok) { const j = await res.json(); return Array.isArray(j.segments) ? j.segments : []; }
     if (res.status === 429 || res.status >= 500) {   // rate-limited / transient — back off
       const wait = Math.min(60000, 2000 * Math.pow(2, attempt));
       await new Promise(r => setTimeout(r, wait));
@@ -94,13 +99,12 @@ async function groqVtt(file) {
   throw new Error('Groq: gave up after retries (rate limit)');
 }
 
-/** Parse a chunk's VTT, offset every cue by `off` seconds, push into `cues`. */
-function collectCues(vtt, off, cues) {
-  for (const blk of String(vtt).split(/\r?\n\r?\n/)) {
-    const m = blk.match(/([0-9:.]+)\s*-->\s*([0-9:.]+)([\s\S]*)/);
-    if (!m) continue;
-    const body = m[3].replace(/^\r?\n/, '').trim();
-    if (body) cues.push(`${fmtTs(parseTs(m[1]) + off)} --> ${fmtTs(parseTs(m[2]) + off)}\n${body}`);
+/** Offset each verbose_json segment by `off` seconds and push a cue into `cues`. */
+function collectCues(segments, off, cues) {
+  for (const s of segments || []) {
+    const start = Number(s.start) + off, end = Number(s.end) + off;
+    const body = String(s.text == null ? '' : s.text).trim();
+    if (body && Number.isFinite(start) && Number.isFinite(end)) cues.push(`${fmtTs(start)} --> ${fmtTs(end)}\n${body}`);
   }
 }
 
@@ -138,8 +142,8 @@ async function transcribeOne(fileName) {
     const cues = [];
     for (let i = 0; i < chunks.length; i++) {
       _stage(fileName, `groq chunk ${i + 1}/${chunks.length}`);
-      const vtt = await groqVtt(path.join(tmp, chunks[i]));
-      collectCues(vtt, i * CHUNK_SEC, cues);
+      const segments = await groqSegments(path.join(tmp, chunks[i]));
+      collectCues(segments, i * CHUNK_SEC, cues);
     }
     if (!cues.length) { _last = { ..._last, stage: 'no speech', doneAt: new Date().toISOString(), cues: 0 }; console.log(`  (no speech in "${fileName}", skipping)`); return; }
     _stage(fileName, 'uploading .vtt to R2');
