@@ -148,8 +148,13 @@ window.RPMusic = (function () {
 
   /** Point the loop at a real audio file (from art-manifest.json). */
   function setSource(u) {
-    if (!u || u === url) return;
+    if (!u || u === url) return;   // already on this track — don't restart it
     url = u;
+    // Tear the OLD track down before switching. Without this the previous audio
+    // element keeps playing (it's only detached, not stopped) so you hear both
+    // at once, and orphaned AudioContexts pile up and glitch the sound.
+    if (audio) { try { audio.pause(); audio.src = ''; audio.load(); } catch (_) {} }
+    if (ctx)   { try { ctx.close(); } catch (_) {} }
     audio = null; ctx = null; gainNode = null; graphTried = false; started = false;   // rebuild against the new source
     attemptAutoplay();  // gesture-free try now; the gesture listeners still cover the first interaction
   }

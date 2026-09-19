@@ -645,7 +645,11 @@
     }
     const base = Art.layerBase + encodeURIComponent(theme.folder) + '/';
     const depths = theme.depth || [1, 0.5, 0.2];
-    const ok = await Scene.setLayers(theme.layers.map((f, i) => ({ src: base + f, depth: depths[i] !== undefined ? depths[i] : 0.3 })));
+    // A layer entry may be a bare filename (resolved against the theme folder)
+    // OR an absolute URL (used as-is) — so a hardcoded theme can point layers
+    // anywhere without the folder base being prepended onto a full URL.
+    const layerSrc = f => (/^https?:\/\//i.test(f) ? f : base + f);
+    const ok = await Scene.setLayers(theme.layers.map((f, i) => ({ src: layerSrc(f), depth: depths[i] !== undefined ? depths[i] : 0.3 })));
     document.body.classList.toggle('has-layers', ok);
     // Every layer failed (not synced yet, offline): fall back to the flat
     // wallpaper the old engine used, so the page never sits on a bare colour.

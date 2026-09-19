@@ -114,7 +114,8 @@
         thumbCss = `background-image:url('${t.bg}');`;
       } else if (t.folder && t.layers && t.layers.length) {
         const dir = base + encodeURIComponent(t.folder) + '/';
-        const urls = t.layers.slice().reverse().map(f => `url('${dir}${f}')`); // front-most first for CSS stacking
+        // A layer may be a bare filename or an absolute URL (see applyThemeLayers).
+        const urls = t.layers.slice().reverse().map(f => `url('${/^https?:\/\//i.test(f) ? f : dir + f}')`); // front-most first for CSS stacking
         thumbCss = `background-image:${urls.join(',')};`;
       }
       const card = document.createElement('button');
