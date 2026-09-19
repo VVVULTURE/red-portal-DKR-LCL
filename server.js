@@ -1703,9 +1703,20 @@ async function handleR2Status(req, res) {
   // reference, or the vars being on a different service. Names only + lengths
   // are safe to expose.
   result.envSeen = Object.keys(process.env)
-    .filter(k => /^(R2_|BOT_|DISCORD|GUILD|GITHUB|REQUEST|SELF_PING)/.test(k))
+    .filter(k => /^(R2_|BOT_|DISCORD|GUILD|GITHUB|REQUEST|SELF_PING|GROQ|CAPTION)/.test(k))
     .sort()
     .reduce((o, k) => { o[k] = process.env[k] ? `set (len ${process.env[k].length})` : 'EMPTY'; return o; }, {});
+
+  // Captioning (transcribe.js) diagnostic: is auto-captioning actually armed on
+  // this instance? enabled requires the Groq key + R2 write creds; ffmpeg must
+  // be in the image. Names/lengths only above — never the secret itself.
+  result.captions = {
+    enabled:     captions.ENABLED,          // GROQ key + R2 write creds all present
+    ffmpeg:      captions.hasFfmpeg(),      // ffmpeg binary in the image (Dockerfile apk add)
+    writeKey:    (process.env.R2_ACCESS_KEY_ID     || process.env.R2_LIST_ACCESS_KEY_ID)     ? 'present' : 'MISSING',
+    writeSecret: (process.env.R2_SECRET_ACCESS_KEY || process.env.R2_LIST_SECRET_ACCESS_KEY) ? 'present' : 'MISSING',
+    inProgress:  captions.inProgress,       // movies being captioned right now
+  };
 
   const manifestStarted = Date.now();
   try {
