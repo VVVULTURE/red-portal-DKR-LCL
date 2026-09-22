@@ -691,7 +691,7 @@
       document.dispatchEvent(new CustomEvent('rp:themes'));
       // Restore a persisted auto-theme: applyTheme() ran at load before these
       // existed and fell back to default; re-apply now that it's known.
-      let stored = null; try { stored = localStorage.getItem('rp_theme'); } catch (_) {}
+      let stored = null; try { stored = (window.RPStore ? window.RPStore.get('rp_theme') : localStorage.getItem('rp_theme')); } catch (_) {}
       if (stored && known.has(String(stored).toLowerCase()) && (RP.currentTheme() || {}).id !== stored) {
         RP.applyTheme(stored);
       }

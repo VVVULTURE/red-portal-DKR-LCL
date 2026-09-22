@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex">
+  <title>Red Portal storage bridge</title>
+</head>
+<body>
+<script>
+/* Red Portal — storage bridge
+ * ===========================
+ * Loaded as a hidden <iframe> by the portal ONLY when it is running inside a
+ * blob tab. A blob: document has an opaque origin with no persistent storage of
+ * its own, so the wheel's theme/sound settings cannot be saved there. This page
+ * is served from redportal.dpdns.org, so its localStorage is the SAME store the
+ * normal site uses -- letting a blob-hosted copy read and write those settings
+ * and share them with the real site. See RPStore in index.html for the client.
+ *
+ * Protocol (postMessage). The parent is a blob/opaque origin (serialized as
+ * "null"), so messages can't be validated by origin -- instead every operation
+ * is restricted to the rp_ namespace, which holds only UI preferences (theme,
+ * music on/off + volume, menu-sound on/off): nothing sensitive.
+ *   parent -> { rp:'getAll' }               -> reply { rp:'all', values:{...} }
+ *   parent -> { rp:'set', values:{k:v,...} }
+ *   parent -> { rp:'del', keys:[...] }
+ * On load this page posts { rp:'ready' } to its embedder.
+ */
+(function () {
+  'use strict';
+  var PREFIX = 'rp_';
+  function ok(k) { return typeof k === 'string' && k.indexOf(PREFIX) === 0; }
+
+  function getAll() {
+    var out = {};
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (ok(k)) out[k] = localStorage.getItem(k);
+      }
+    } catch (_) {}
+    return out;
+  }
+
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || typeof d !== 'object' || d.rp == null) return;
+    if (d.rp === 'getAll') {
+      // Parent origin is opaque ("null"); reply with '*'. The payload is only
+      // the user's own rp_ UI preferences, so this exposes nothing sensitive.
+      if (e.source) try { e.source.postMessage({ rp: 'all', values: getAll() }, '*'); } catch (_) {}
+    } else if (d.rp === 'set' && d.values && typeof d.values === 'object') {
+      try { Object.keys(d.values).forEach(function (k) { if (ok(k)) localStorage.setItem(k, String(d.values[k])); }); } catch (_) {}
+    } else if (d.rp === 'del' && Array.isArray(d.keys)) {
+      try { d.keys.forEach(function (k) { if (ok(k)) localStorage.removeItem(k); }); } catch (_) {}
+    }
+  });
+
+  // Tell whoever embedded us that we're ready to serve requests.
+  try { (window.parent || window).postMessage({ rp: 'ready' }, '*'); } catch (_) {}
+})();
+</script>
+</body>
+</html>

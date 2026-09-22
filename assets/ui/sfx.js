@@ -14,7 +14,9 @@ window.RPSfx = (function () {
   'use strict';
 
   const KEY = 'rp_sfx';
-  const store = {
+  // Persist through RPStore (native localStorage on the real site; a bridge to
+  // redportal's localStorage inside a blob tab). Falls back to raw localStorage.
+  const store = window.RPStore || {
     get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
   };
@@ -125,6 +127,16 @@ window.RPSfx = (function () {
   function setSources(map) {
     Object.assign(urls, map || {});
     if (ctx) Object.keys(urls).forEach(load);
+  }
+
+  // In a blob tab the persisted on/off arrives asynchronously from the storage
+  // bridge; re-read it once available so a user who turned menu sounds off
+  // stays off. Fires immediately (no-op) on the normal site.
+  if (window.RPStore && typeof window.RPStore.ready === 'function') {
+    window.RPStore.ready(() => {
+      enabled = store.get(KEY) !== 'off';
+      document.dispatchEvent(new CustomEvent('rp:sfx', { detail: { enabled } }));
+    });
   }
 
   return { play, setEnabled, setSources, get enabled() { return enabled; } };

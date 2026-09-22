@@ -210,6 +210,25 @@
       const t = root.querySelector('[data-pane="sound"] .set-toggle');
       if (t && e.detail) { t.classList.toggle('on', e.detail.enabled); t.setAttribute('aria-checked', String(e.detail.enabled)); }
     });
+    // Same for music: reloadFromStore (blob-tab bridge) or any other code path
+    // that flips music on/off or changes volume dispatches rp:music — reflect it
+    // on the music toggle (2nd toggle in the pane) and the volume slider.
+    document.addEventListener('rp:music', e => {
+      if (!e.detail) return;
+      const toggles = root.querySelectorAll('[data-pane="sound"] .set-toggle');
+      const mt = toggles[1];
+      if (mt) { mt.classList.toggle('on', e.detail.enabled); mt.setAttribute('aria-checked', String(e.detail.enabled)); }
+      const range = root.querySelector('[data-pane="sound"] .set-vol input[type="range"]');
+      if (range && typeof e.detail.volume === 'number' && document.activeElement !== range) {
+        // Repaint the slider directly — do NOT dispatch 'input' here, that would
+        // call setVolume() again and dispatch rp:music in an endless loop.
+        const v = e.detail.volume;
+        range.value = String(v);
+        range.style.setProperty('--fill', (v / 250 * 100) + '%');
+        const out = range.parentElement && range.parentElement.querySelector('.set-vol-val');
+        if (out) out.textContent = v + '%';
+      }
+    });
     // Rebuild the theme grid when themes change (auto-discovered themes are
     // added asynchronously after this panel is first built).
     document.addEventListener('rp:themes', () => {

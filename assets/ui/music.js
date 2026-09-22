@@ -21,7 +21,11 @@ window.RPMusic = (function () {
   'use strict';
 
   const KEY = 'rp_music', KEY_VOL = 'rp_music_vol';
-  const store = {
+  // Persist through RPStore: native localStorage on the real site, and a bridge
+  // to redportal.dpdns.org's localStorage when we're running inside a blob tab
+  // (an opaque origin has no persistent storage of its own). Falls back to raw
+  // localStorage if RPStore somehow isn't present.
+  const store = window.RPStore || {
     get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
   };
@@ -35,6 +39,12 @@ window.RPMusic = (function () {
   let ctx = null, gainNode = null, graphTried = false;
   let started = false;   // true only once sound is ACTUALLY coming out
   let ducked = false;    // temporarily paused for a video, WITHOUT changing enabled
+  let hiddenPaused = false;   // paused because the tab/window went to the background
+  // In a blob tab the real on/off + volume arrive asynchronously from the
+  // storage bridge. Until they do, do NOT start playing — otherwise music the
+  // user turned OFF would blare for a moment on every load. On the normal site
+  // prefs are known synchronously, so this is true immediately.
+  let prefsReady = !(window.RPStore && window.RPStore.isBridge);
 
   function ensureAudio() {
     if (audio || !url) return;
@@ -80,7 +90,7 @@ window.RPMusic = (function () {
    *  marks `started` once sound can truly come out. MUST be called from within
    *  a user-gesture handler to succeed the first time (browser autoplay gate). */
   function play() {
-    if (!enabled || !url) return;
+    if (!enabled || !url || !prefsReady) return;
     ensureAudio();
     buildGraph();
     if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -145,6 +155,43 @@ window.RPMusic = (function () {
       if (enabled) play();   // called from the click that stopped the video → gesture context, resumes cleanly
     }
   }
+
+  /* ── Play only while the user is actually looking at Red Portal ──────
+     When the tab/window goes to the background, stop the music. When they
+     come back, resume it ONLY if it was genuinely playing before (the user
+     had already started it with a gesture) and they still have music enabled
+     — settings-off always wins, and something never-started stays silent.
+     Uses hiddenPaused so we only auto-resume what visibility paused, never a
+     track ducked for a video or one the user paused another way. */
+  function onVisibility() {
+    if (document.hidden) {
+      if (audio && !audio.paused && !ducked) { audio.pause(); hiddenPaused = true; }
+    } else if (hiddenPaused) {
+      hiddenPaused = false;
+      if (enabled && started && !ducked) play();
+    }
+  }
+  document.addEventListener('visibilitychange', onVisibility);
+  // A background tab also fires pagehide/blur on some platforms (e.g. phones
+  // locking); treat losing the window the same as hiding the tab.
+  window.addEventListener('pagehide', () => { if (audio && !audio.paused && !ducked) { audio.pause(); hiddenPaused = true; } });
+
+  /** Re-read the persisted on/off + volume once they're available. On the real
+   *  site this fires immediately (no-op re-apply); in a blob tab it fires once
+   *  the storage bridge has delivered the values from redportal's own
+   *  localStorage, so a user who turned music OFF stays off, and their saved
+   *  volume is restored. */
+  function reloadFromStore() {
+    enabled = store.get(KEY) !== 'off';
+    const v = store.get(KEY_VOL);
+    vol = (v === null || v === undefined) ? 250 : clampVol(v);
+    applyVolume();
+    prefsReady = true;
+    if (enabled) play();                                   // gesture listeners still cover the first interaction if this is blocked
+    else if (audio) { audio.pause(); started = false; }
+    document.dispatchEvent(new CustomEvent('rp:music', { detail: { enabled, volume: vol } }));
+  }
+  if (window.RPStore && typeof window.RPStore.ready === 'function') window.RPStore.ready(reloadFromStore);
 
   /** Point the loop at a real audio file (from art-manifest.json). */
   function setSource(u) {

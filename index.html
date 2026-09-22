@@ -7,6 +7,137 @@
   <meta name="description" content="Red Portal — games, HTML executor and more." />
   <title>Red Portal</title>
 
+  <!--
+    RPStore — settings persistence that survives the blob tab.
+    ─────────────────────────────────────────────────────────
+    On the real site this is just a thin wrapper over localStorage. But when
+    Red Portal is launched inside a blob: tab (the cloak launcher fetches the
+    page and opens it as a blob), the document has an OPAQUE origin: localStorage
+    there throws or is wiped when the tab closes, so themes and sound settings
+    never persisted (this was the Chromebook bug). In that case RPStore talks to
+    a hidden iframe pointing at redportal.dpdns.org/storage-bridge.html — the
+    bridge runs on the REAL origin and reads/writes the SAME localStorage the
+    normal site uses, so settings are saved AND shared between the two.
+
+    Defined here, before every other script, because the theme engine and the
+    music/sfx modules read their saved values as they initialise. In bridge mode
+    those synchronous reads return the in-memory cache (empty until the bridge
+    delivers), so each of those modules also re-applies once RPStore.ready fires.
+  -->
+  <script>
+  (function () {
+    'use strict';
+    var PREFIX = 'rp_';
+
+    // Real site (http/https with working localStorage) -> use localStorage
+    // directly. Blob/opaque origin, file://, or storage blocked -> bridge.
+    function nativeUsable() {
+      try { var t = '__rp_probe__'; localStorage.setItem(t, '1'); localStorage.removeItem(t); return true; }
+      catch (_) { return false; }
+    }
+    var isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+    var bridge = !(isHttp && nativeUsable());
+
+    // Where the real site lives. The blob launcher injects
+    // <base href="https://redportal.dpdns.org/"> as the first thing in <head>,
+    // so read that; fall back to the known origin.
+    function portalOrigin() {
+      var b = document.querySelector('base[href]');
+      if (b && b.href) { try { return new URL(b.href).origin; } catch (_) {} }
+      if (isHttp) return location.origin;
+      return 'https://redportal.dpdns.org';
+    }
+
+    var mem = {};              // synchronous cache used in bridge mode
+    var ready = !bridge;       // local mode is ready immediately
+    var readyCbs = [];
+    var bridgeWin = null;
+    var pendingSet = {};       // sets made before the bridge connected
+    var pendingDel = [];
+    var ORIGIN = bridge ? portalOrigin() : null;
+
+    function flushReady() {
+      if (ready) return;
+      ready = true;
+      var cbs = readyCbs; readyCbs = [];
+      cbs.forEach(function (cb) { try { cb(); } catch (_) {} });
+      try { document.dispatchEvent(new CustomEvent('rp:store-ready')); } catch (_) {}
+    }
+
+    if (bridge) {
+      // Seed the cache with anything localStorage still holds this session, so
+      // reads aren't totally empty before the bridge answers.
+      try { for (var i = 0; i < localStorage.length; i++) { var k0 = localStorage.key(i); if (k0 && k0.indexOf(PREFIX) === 0) mem[k0] = localStorage.getItem(k0); } } catch (_) {}
+
+      window.addEventListener('message', function (e) {
+        var d = e.data;
+        if (!d || typeof d !== 'object') return;
+        if (d.rp === 'ready') {
+          bridgeWin = e.source;
+          // Ask for the stored values FIRST. Do NOT flush pre-ready sets yet:
+          // those are boot-time DEFAULTS (e.g. applyTheme('default') runs before
+          // the real saved theme has arrived) and must never clobber what the
+          // user actually saved. They're reconciled in the 'all' handler.
+          try {
+            if (pendingDel.length) { bridgeWin.postMessage({ rp: 'del', keys: pendingDel }, ORIGIN); pendingDel = []; }
+            bridgeWin.postMessage({ rp: 'getAll' }, ORIGIN);
+          } catch (_) {}
+        } else if (d.rp === 'all' && d.values && typeof d.values === 'object') {
+          var V = d.values;
+          // Stored values win. A pre-ready (boot default) set only survives — and
+          // is persisted — for a key the bridge doesn't have yet.
+          var seed = {};
+          Object.keys(pendingSet).forEach(function (k) { if (!(k in V)) seed[k] = pendingSet[k]; });
+          Object.keys(V).forEach(function (k) { mem[k] = V[k]; });
+          Object.keys(seed).forEach(function (k) { mem[k] = seed[k]; });
+          try { if (bridgeWin && Object.keys(seed).length) bridgeWin.postMessage({ rp: 'set', values: seed }, ORIGIN); } catch (_) {}
+          pendingSet = {};
+          flushReady();
+        }
+      });
+
+      try {
+        var f = document.createElement('iframe');
+        f.setAttribute('aria-hidden', 'true');
+        f.tabIndex = -1;
+        f.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none;';
+        f.src = ORIGIN + '/storage-bridge.html';
+        (document.head || document.documentElement).appendChild(f);
+      } catch (_) { flushReady(); }   // can't bridge -> proceed with defaults
+
+      // Never hang the app if the bridge can't load (e.g. offline).
+      setTimeout(flushReady, 4000);
+    }
+
+    window.RPStore = {
+      isBridge: bridge,
+      get: function (k) {
+        if (!bridge) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+        return (k in mem) ? mem[k] : null;
+      },
+      set: function (k, v) {
+        v = String(v);
+        if (!bridge) { try { localStorage.setItem(k, v); } catch (_) {} return; }
+        mem[k] = v;
+        try { localStorage.setItem(k, v); } catch (_) {}   // best-effort session backup
+        if (bridgeWin) { var o = {}; o[k] = v; try { bridgeWin.postMessage({ rp: 'set', values: o }, ORIGIN); } catch (_) {} }
+        else pendingSet[k] = v;
+      },
+      del: function (k) {
+        if (!bridge) { try { localStorage.removeItem(k); } catch (_) {} return; }
+        delete mem[k];
+        try { localStorage.removeItem(k); } catch (_) {}
+        if (bridgeWin) { try { bridgeWin.postMessage({ rp: 'del', keys: [k] }, ORIGIN); } catch (_) {} }
+        else pendingDel.push(k);
+      },
+      ready: function (cb) {
+        if (typeof cb !== 'function') return;
+        if (ready) { try { cb(); } catch (_) {} } else readyCbs.push(cb);
+      },
+    };
+  })();
+  </script>
+
   <!-- Preconnect to font origins for faster loading -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -272,8 +403,8 @@ header::before {
   inset: 0;
   z-index: 0;
   background: var(--accent);
-  -webkit-mask: url("assets/logo/logo-mask.png?v=20260918c") center / contain no-repeat;
-          mask: url("assets/logo/logo-mask.png?v=20260918c") center / contain no-repeat;
+  -webkit-mask: url("assets/logo/logo-mask.png?v=20260922a") center / contain no-repeat;
+          mask: url("assets/logo/logo-mask.png?v=20260922a") center / contain no-repeat;
 }
 
 /* ── Nav ── */
@@ -1443,7 +1574,7 @@ footer {
   </style>
   <!-- The console-style presentation layer (wheel, scene, transitions).
        Everything above stays as it was; assets/ui/ only adds to it. -->
-  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260918c" />
+  <link rel="stylesheet" href="assets/ui/wheel.css?v=20260922a" />
 </head>
 <body>
 
@@ -1456,7 +1587,7 @@ footer {
 <div id="intro-overlay" aria-hidden="true">
   <span id="intro-logo" class="rp-logo" role="img" aria-label="Red Portal">
     <span class="rp-logo-fill"></span>
-    <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260918c" alt="" />
+    <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260922a" alt="" />
   </span>
 </div>
 <script>
@@ -1519,7 +1650,7 @@ footer {
   <a class="logo" href="#games" data-section="games" aria-label="Red Portal — go to Games">
     <span class="rp-logo" role="img" aria-label="Red Portal">
       <span class="rp-logo-fill"></span>
-      <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260918c" alt="" />
+      <img class="rp-logo-ink" src="assets/logo/logo-ink.png?v=20260922a" alt="" />
     </span>
   </a>
 
@@ -2108,8 +2239,11 @@ footer {
 (function () {
   'use strict';
 
-  /* ── Safe localStorage wrapper (throws in private/file:// contexts) ── */
-  const store = {
+  /* ── Persistence wrapper ──────────────────────────────────────────
+     Delegates to RPStore (defined in <head>): native localStorage on the real
+     site, and a bridge to redportal's localStorage when we're in a blob tab.
+     Falls back to a raw localStorage wrapper if RPStore is somehow absent. */
+  const store = window.RPStore || {
     get(k)    { try { return localStorage.getItem(k); }    catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); }        catch {} },
     del(k)    { try { localStorage.removeItem(k); }        catch {} },
@@ -2444,6 +2578,17 @@ footer {
   // Boot: build side panel themes and restore saved theme
   buildSidePanelThemes();
   applyTheme(store.get(THEME_KEY) || 'default');
+  // In a blob tab the saved theme arrives asynchronously from the storage
+  // bridge, so the line above falls back to 'default' at first. Re-apply once
+  // the real value is available (fires immediately on the normal site). The
+  // rp:themes event refreshes the settings panel's active-theme highlight.
+  if (window.RPStore && typeof window.RPStore.ready === 'function') {
+    window.RPStore.ready(() => {
+      const saved = store.get(THEME_KEY);
+      if (saved && saved !== currentThemeId) applyTheme(saved);
+      try { document.dispatchEvent(new CustomEvent('rp:themes')); } catch (_) {}
+    });
+  }
 
 
   /* ═══════════════════════════════════════════════════════════════
@@ -3545,12 +3690,12 @@ footer {
      controller last. They are plain scripts so a blob-wrapped copy of this
      page (the launcher case, which injects <base>) resolves them the same
      way it resolves /api/*. -->
-<script src="assets/ui/wheel.js?v=20260918c"></script>
-<script src="assets/ui/scene.js?v=20260918c"></script>
-<script src="assets/ui/sfx.js?v=20260918c"></script>
-<script src="assets/ui/music.js?v=20260918c"></script>
-<script src="assets/ui/art.js?v=20260918c"></script>
-<script src="assets/ui/settings.js?v=20260918c"></script>
-<script src="assets/ui/app.js?v=20260918c"></script>
+<script src="assets/ui/wheel.js?v=20260922a"></script>
+<script src="assets/ui/scene.js?v=20260922a"></script>
+<script src="assets/ui/sfx.js?v=20260922a"></script>
+<script src="assets/ui/music.js?v=20260922a"></script>
+<script src="assets/ui/art.js?v=20260922a"></script>
+<script src="assets/ui/settings.js?v=20260922a"></script>
+<script src="assets/ui/app.js?v=20260922a"></script>
 </body>
 </html>

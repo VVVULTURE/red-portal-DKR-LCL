@@ -750,6 +750,67 @@ Fixed to `cache:'no-cache'` (commit `6ca00ec`). Lesson: never `force-cache` a
 probe for content that can appear later. (Game-icon probes in `RPArt.gameLogo`
 use an `<img>`, which doesn't hit this, but watch for the same pattern.)
 
+#### Session 5v — settings persist in a blob tab (storage bridge) + music follows tab visibility
+
+Two owner tweaks.
+
+**1. Music only plays while you're actually on Red Portal.** In `music.js`, a
+`visibilitychange` handler pauses the theme when the tab/window goes to the
+background and resumes it when you come back — but only if it was genuinely
+playing before (the user had already started it with a gesture: `started`), it's
+still enabled, and it isn't ducked for a video. Settings-OFF always wins, and a
+never-started track stays silent. `pagehide` is treated the same as hiding.
+Applies on the normal site and in a blob tab alike.
+
+**2. Settings persist from a blob tab (the Chromebook bug).** Root cause
+(verified against the launcher + live headers, not guessed): the owner opens Red
+Portal through `Downloads\blob-redportal-launcher.html` (embedded in a Google
+Site), which `window.open`s a blank tab, fetches the portal HTML, injects
+`<base href="https://redportal.dpdns.org/">`, and loads it as a **blob:** URL. A
+blob document has an **opaque origin**, and `localStorage`/cookies/IndexedDB are
+all unavailable or ephemeral there — so every theme/sound write was silently
+swallowed by the `try/catch` wrappers. The blob's `window.opener` is the launcher
+(a file:// / Google-Sites origin), **not** redportal — so an opener-postMessage
+bridge (option 2) couldn't reach redportal's storage or share it with the normal
+site. Chosen fix (owner picked option 2-if-possible-else-1; option 2 was proven
+impossible here): **a hidden same-origin iframe bridge (option 1).**
+
+- **`storage-bridge.html`** (NEW, repo root; served at `/storage-bridge.html`
+  with the site's normal `CORS_HEADERS`, which already send `x-frame-options:
+  ALLOWALL` + empty CSP, so it's framable from a blob/null origin — measured).
+  It runs on the REAL redportal origin, so its `localStorage` is the SAME store
+  the normal site uses. postMessage protocol, restricted to the `rp_` namespace
+  (theme + sound prefs, nothing sensitive): `getAll` → `all`, `set`, `del`; posts
+  `ready` on load.
+- **`window.RPStore`** (NEW, inline in `index.html` `<head>`, before every other
+  script). On the real site it's a thin passthrough to `localStorage`
+  (`isBridge:false`, unchanged behaviour). In a blob tab (`location.protocol !==
+  http/https` OR a failed probe) it's `isBridge:true`: it mounts the hidden
+  bridge iframe, preloads all `rp_` keys into a synchronous cache, mirrors writes
+  to the bridge, and exposes `ready(cb)` that fires once values arrive (4 s
+  timeout fallback so the app never hangs).
+- The theme engine (`index.html`), `music.js` and `sfx.js` now read/write through
+  `RPStore` and **re-apply on `RPStore.ready`** — because their synchronous boot
+  reads return empty in bridge mode until the bridge answers. `music.js` also
+  gates playback on a `prefsReady` flag so a track the user turned OFF can't blare
+  for a moment before the real setting loads. `settings.js` gained an `rp:music`
+  listener so its toggle + volume slider reflect the restored values.
+- **Handshake ordering bug caught in review (ledger #38):** boot runs
+  `applyTheme('default')` before the saved theme arrives, which would have pushed
+  `'default'` to the bridge and clobbered the real saved theme. Fixed: on `ready`
+  the client requests `getAll` FIRST and does NOT flush pre-ready sets; in the
+  `all` handler stored values win, and a boot default is only kept/persisted for
+  a key the bridge doesn't already have.
+- Cache token bumped `20260918c` → `20260922a` (12 refs in `index.html`).
+- **Verified:** all files syntax-check; a local server run serves
+  `/storage-bridge.html` framable (`ALLOWALL`, empty CSP) with the right body,
+  and `index.html` carries the RPStore script + new token. **NOT yet verified in
+  a real blob tab** — the Chrome extension wasn't connected this session, so the
+  end-to-end blob round-trip needs a check on the owner's Chromebook (open via
+  the launcher, change a theme, reload, confirm it sticks). Failure mode is safe:
+  if the bridge can't load it times out and behaves exactly as before (no
+  persistence), never a broken site.
+
 #### Session 5u — server-side movie captioning via Groq (the local pipeline retired)
 
 The owner's ask: **every movie in the Movies tab should be auto-transcribed by
@@ -1119,6 +1180,8 @@ Read this before debugging. Several of these present identically.
 | 22 | **A doc claim that contradicted the doc's own numbers** | §9 said 13 games were "gone everywhere" while §2 said 104/104 load. §9 was written from the *pre-prune* audit and never re-checked after the bucket-built manifest restored them | Both corrected; 8 of the 13 were live the whole time |
 | 35 | **Local captioner logged "ALL DONE" but Angry Birds had no `.vtt` on R2** | It transcribed 19/20 chunks (chunk 1 timed out, skipped) then the R2 `PutObject` was aborted mid-write (`write ECONNABORTED`, a transient network drop). The catch printed the error to **stderr** while the outer loop's "ALL DONE" went to **stdout** — the two were split into `.out.log`/`.err.log`, so the stdout tail looked like success. The stitched cues lived only in memory and were lost | Confirmed the failure by fetching the `.vtt` (404) and reading `.err.log`. This is why server-side Groq (session 5u, retries the upload, no in-memory-only state across a 40-min run) replaced the local pipeline. When judging a long job, verify the artifact (R2 200), not just the stdout tail |
 | 36 | **Server-side Groq captioning: every chunk failed, movie dropped out of `inProgress` with no `.vtt`, no visible reason** | `transcribe.js` requested `response_format=vtt` (copied from OpenAI's Whisper API). **Groq's transcription API does not support vtt/srt** — only `json | text | verbose_json` — so every chunk got `HTTP 400 invalid_response_format`. The error was only on the server's `console.error`, invisible on Koyeb; the ~5-min delay before it surfaced was ffmpeg extracting the long movie's audio *first*, then the first Groq call 400ing | Two parts: (1) added a `captions.last` diag (`{file,stage,startedAt,doneAt,cues,error}`) to `/api/r2-status` so the real error/stage is readable without server logs — that's how it was caught (`commit 7589a20`); (2) request `verbose_json` and build the WebVTT ourselves from the segment `start`/`end`/`text` (`commit 423bd13`). Verified: School Spyware captioned (102 cues, R2 200), which also proved the R2 write token works |
+| 37 | **Theme + sound settings never persist when Red Portal runs in a blob tab** (Chromebook) | A blob: document has an **opaque origin**; `localStorage` (and cookies/IndexedDB) throw or are ephemeral there, so every `store.set` was silently caught and lost. The blob's `window.opener` is the launcher (file:// / Google-Sites origin), not redportal, so it can't reach or share redportal's storage either | `RPStore` + `storage-bridge.html` (session 5v): in a blob tab, a hidden iframe to `redportal.dpdns.org/storage-bridge.html` reads/writes the REAL origin's `localStorage` over postMessage — the same store the normal site uses, so settings persist AND sync. The site is framable already (`x-frame-options: ALLOWALL`, empty CSP — measured). Detect blob mode by `location.protocol` (NOT a localStorage probe: a Google-origin blob's localStorage "works" but is the wrong, unshared origin) |
+| 38 | **A blob-tab storage bridge that clobbers the saved theme on every load** | Boot runs `applyTheme(store.get(THEME_KEY) || 'default')` synchronously; in bridge mode the read returns empty, so it applies `'default'` AND persists it. Flushing that pre-ready `set` to the bridge before `getAll` returned would overwrite the user's real saved theme with `'default'` | On `ready`, request `getAll` FIRST and hold pre-ready sets. In the `all` handler, stored values win; a pre-ready (boot default) value is only kept/persisted for a key the bridge doesn't already have. Caught in review before shipping |
 
 ---
 
@@ -1271,6 +1334,12 @@ honestly returns 502.
   each; Angry Birds = 1643 cues, transcribed in ~11 min; queue idle). New movies
   self-caption on the first Movies-tab load. The local `_movie_caps.mjs` pipeline
   is retired. No open work here — left as a record.
+- **Blob-tab settings bridge needs a real-device check (session 5v).** Shipped
+  and syntax/serving-verified, but the end-to-end blob round-trip was NOT tested
+  in a browser (the Chrome extension was offline this session). On the Chromebook:
+  open Red Portal via `blob-redportal-launcher.html`, change the theme + music,
+  reload the blob tab, and confirm they stick; the normal site should still
+  persist as before. Safe failure mode (bridge timeout → behaves like today).
 - **The hardcoded `THEMES` array in `index.html`.** The owner is hand-managing it
   (Default theme, layer paths). The earlier "empty the THEMES array so no
   background is hardcoded" request was **NOT shipped** — it would wipe the owner's
